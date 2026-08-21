@@ -1,256 +1,248 @@
 # Legal Agent Material Processor
 
-律师案件材料智能预处理系统。
+An AI-assisted preprocessing system for legal case materials.
 
-## 项目简介
+## Project Overview
 
-Legal Agent Material Processor 是一个面向律师工作场景设计的 AI 材料处理基础系统。
+Legal Agent Material Processor is an infrastructure project designed for legal practice workflows.
 
-目标是将律师办案过程中产生的大量非结构化材料，转换为大语言模型（LLM）能够稳定理解和分析的结构化案件知识。
+Its goal is to transform large volumes of unstructured case materials into structured case knowledge that large language models (LLMs) can read, trace, and analyze more reliably.
 
-本项目是未来律师 AI Agent 系统的基础模块。
-
----
-
-# 项目目标
-
-律师实际工作中，会面对大量不同格式的信息：
-
-- 律师口述案情
-- 当事人聊天记录
-- Word 文档
-- 合同文件
-- PDF 案件材料
-- 扫描件
-- 录音文件
-
-这些信息通常：
-
-- 格式混乱
-- 信息分散
-- 缺少结构
-- 难以直接提供给 AI 使用
-
-
-本项目希望解决：
-
-> 如何将律师原始材料转换成为 AI 可以可靠理解的案件资料包。
+This project is intended to serve as the material-processing foundation for a future legal AI agent system.
 
 ---
 
-# 当前开发阶段
+# Project Goals
 
-## Phase 1：案件材料处理层
+Legal work often involves information from many different sources and formats, including:
 
-当前重点：
-```
-原始材料
-↓
-材料解析
-↓
-信息结构化
-↓
+- Attorney case narration
+- Client chat records
+- Word documents
+- Contracts
+- PDF case files
+- Scanned documents
+- Audio recordings
+
+These materials are often:
+
+- Inconsistently formatted
+- Scattered across multiple sources
+- Poorly structured
+- Difficult to provide directly to AI systems
+
+The project aims to answer one core question:
+
+> How can raw legal materials be converted into a case package that an AI system can understand reliably?
+
+---
+
+# Current Development Stage
+
+## Phase 1: Case Material Processing Layer
+
+Current focus:
+
+```text
+Raw Materials
+      |
+      v
+Material Parsing
+      |
+      v
+Information Structuring
+      |
+      v
 Markdown / Knowledge Package
-↓
-AI读取
+      |
+      v
+AI Reading
 ```
 
 ---
 
-# 支持材料类型规划
+# Planned Material Types
 
-## 1. 律师口述案情
+## 1. Attorney Case Narration
 
-来源：
+Possible sources:
 
-- 律师与 AI 对话
-- 律师语音记录
-- 案件描述
+- Conversations between an attorney and an AI assistant
+- Attorney voice notes
+- Free-form case descriptions
 
+Processing goals:
 
-处理目标：
+Generate:
 
-生成：
-
-- 案情摘要
-- 核心关键词
-- 人物关系
-- 时间线
-- 争议焦点
-- 待确认事项
+- Case summary
+- Core keywords
+- Party and person relationships
+- Timeline
+- Disputed issues
+- Items requiring confirmation
 
 ---
 
-## 2. 标准电子文档
+## 2. Standard Electronic Documents
 
-例如：
+Examples:
 
 - Word
 - TXT
 - Excel
-- 电子合同
+- Electronic contracts
 
+Goal:
 
-目标：
-
-解析内容，并转换为统一格式。
-
----
-
-## 3. PDF 文件
-
-包括：
-
-### 原生 PDF
-
-直接解析文本。
-
-### 扫描 PDF
-
-通过 OCR 转换。
-
-未来需要解决：
-
-- 图片识别
-- 表格解析
-- 印章识别
-- 手写文字识别
+Extract content and convert it into a unified representation.
 
 ---
 
-## 4. 音频材料
+## 3. PDF Files
 
-例如：
+### Native PDFs
 
-- 当事人访谈录音
-- 电话录音
-- 会议记录
+Extract embedded text directly.
 
+### Scanned PDFs
 
-处理：
+Convert image-based content through OCR.
 
-音频 → 文本
+Future capabilities may include:
 
-
-同时保留：
-
-- 时间戳
-- 说话人信息
-- 原始文件关联
+- Image recognition
+- Table extraction
+- Seal and stamp recognition
+- Handwriting recognition
 
 ---
 
-# AI读取设计
+## 4. Audio Materials
 
-转换后的材料不会直接作为普通文本输入。
+Examples:
 
-目标生成：
+- Client interview recordings
+- Telephone recordings
+- Meeting recordings
+
+Processing flow:
+
+```text
+Audio -> Text
 ```
+
+The system should also preserve:
+
+- Timestamps
+- Speaker information
+- Links to the original source file
+
+---
+
+# AI Reading Design
+
+Converted materials should not be treated as undifferentiated plain text.
+
+The target output is a:
+
+```text
 Case Knowledge Package
 ```
 
-结构包含：
+A package may contain:
+
+```text
+Case Information
+
+People and Party Relationships
+
+Facts and Events
+
+Timeline
+
+Evidence List
+
+Disputed Issues
+
+Source Files
+
+Questions Requiring Confirmation
 ```
-案件信息
-
-人物关系
-
-事实经过
-
-时间线
-
-证据列表
-
-争议焦点
-
-来源文件
-
-待确认问题
-```
 
 ---
 
-# AI Prompt设计目标
+# AI Prompt Design Goals
 
-AI读取案件材料时，需要：
+When an AI system reads case materials, it should distinguish between different information types.
 
-## 区分信息类型
+## Confirmed Facts
 
-### 已确认事实
+Facts supported by documents or evidence.
 
-来自文件或证据。
+## Party Statements
 
-### 当事人口述
+Statements provided by a client, party, witness, or other source that have not yet been independently verified.
 
-未经验证的信息。
+## Evidence-Supported Information
 
-### 证据支持内容
+Claims or facts that can be traced to a specific source.
 
-可以追溯来源。
+## Unverified or Missing Information
 
-### 待核实信息
+Information that is incomplete, uncertain, contradictory, or requires follow-up.
 
-缺失或存在疑问的信息。
+The system should avoid:
 
-避免：
-
-- 编造事实
-- 混淆推测
-- 错误引用材料
+- Fabricating facts
+- Treating assumptions as confirmed information
+- Misattributing or misquoting source materials
 
 ---
 
-# 项目未来规划
+# Future Roadmap
 
-未来可能扩展：
+## Phase 2: Case Understanding Agent
 
-## Phase 2
+Potential capabilities:
 
-案件理解 Agent
+- Case analysis
+- Legal issue decomposition
+- Key fact extraction
 
-包括：
+## Phase 3: Legal Research Agent
 
-- 案情分析
-- 法律问题拆解
-- 关键事实提取
+Potential capabilities:
 
-## Phase 3
+- Statute and regulation research
+- Similar-case retrieval
+- Case law analysis
 
-法律检索 Agent
+## Phase 4: Legal Document Generation Agent
 
-包括：
+Potential capabilities:
 
-- 法律法规查询
-- 类案检索
-- 判例分析
-
-## Phase 4
-
-文书生成 Agent
-
-包括：
-
-- 起诉状
-- 答辩状
-- 律师意见书
-- 其他法律文书
+- Complaints and pleadings
+- Statements of defense
+- Legal opinions
+- Other legal documents
 
 ---
 
-# 项目原则
+# Project Principles
 
-1. AI 不替代律师判断。
+1. AI does not replace professional legal judgment.
 
-2. 所有关键结论必须可追溯来源。
+2. Important conclusions must be traceable to their sources.
 
-3. 区分事实、观点、推测。
+3. Facts, opinions, assumptions, and unverified claims must remain distinguishable.
 
-4. 优先保证准确性，而不是生成速度。
+4. Accuracy and traceability take priority over generation speed.
 
 ---
 
 # Status
 
-🚧 Project initialization stage
+Project initialization stage.
 
-当前仅搭建基础架构。
+The repository currently contains the initial architecture only. No production legal workflow has been implemented yet.
