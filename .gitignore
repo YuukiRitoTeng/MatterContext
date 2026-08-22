@@ -23,3 +23,21 @@ dist/
 build/
 coverage/
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Private matter data and application state
+/var/
+/private/
+/cases/
+/uploads/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Local model and parser caches
+.cache/
+models/
