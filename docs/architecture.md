@@ -150,3 +150,7 @@ If Phase 1 is useful, later additions can be made behind existing boundaries:
 - signed installers and managed application updates.
 
 None of these changes requires replacing the matter, source, review, versioning, or presentation-boundary rules.
+
+# Structured generation boundary
+
+`matter_context.ai` owns provider-neutral Pydantic contracts and the single configurable OpenAI-compatible HTTP adapter. `application.generation` assembles exactly one selected source only after an explicit UI action, persists a running-to-terminal `ProcessingRun`, and never writes source, claim, review, or Case Brief records. Qt submits the workflow through its existing background executor. Configuration is environment-only; connection checking uses fixed synthetic input.

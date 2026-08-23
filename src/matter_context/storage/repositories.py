@@ -59,7 +59,8 @@ def _review(row: ReviewDecisionRow) -> ReviewDecision:
 def _run(row: ProcessingRunRow) -> ProcessingRun:
     return ProcessingRun(row.identifier, row.matter_id, row.operation, tuple(json.loads(row.input_source_ids)),
                          ProcessingStatus(row.status), row.provider, row.model, row.workflow_version,
-                         _utc(row.started_at), _utc(row.completed_at), row.error_summary, row.parser_name, row.parser_version, row.duration_ms)
+                         _utc(row.started_at), _utc(row.completed_at), row.error_summary, row.parser_name, row.parser_version, row.duration_ms,
+                         row.usage_input_tokens, row.usage_output_tokens, row.usage_total_tokens)
 
 
 def _brief(row: CaseBriefVersionRow) -> CaseBriefVersion:
@@ -175,14 +176,19 @@ class SqlAlchemyProcessingRunRepository:
                          input_source_ids=json.dumps(item.input_source_ids), status=item.status.value, provider=item.provider,
                          model=item.model, workflow_version=item.workflow_version, started_at=item.started_at,
                          completed_at=item.completed_at, error_summary=item.error_summary, parser_name=item.parser_name,
-                         parser_version=item.parser_version, duration_ms=item.duration_ms))
+                         parser_version=item.parser_version, duration_ms=item.duration_ms,
+                         usage_input_tokens=item.usage_input_tokens, usage_output_tokens=item.usage_output_tokens,
+                         usage_total_tokens=item.usage_total_tokens))
     def get(self, identifier: str) -> ProcessingRun | None:
         row = self.session.get(ProcessingRunRow, identifier)
         return _run(row) if row else None
     def update(self, item: ProcessingRun) -> None:
         self.session.execute(update(ProcessingRunRow).where(ProcessingRunRow.identifier == item.identifier).values(
-            status=item.status.value, completed_at=item.completed_at, error_summary=item.error_summary,
+            status=item.status.value, provider=item.provider, model=item.model, workflow_version=item.workflow_version,
+            completed_at=item.completed_at, error_summary=item.error_summary,
             parser_name=item.parser_name, parser_version=item.parser_version, duration_ms=item.duration_ms,
+            usage_input_tokens=item.usage_input_tokens, usage_output_tokens=item.usage_output_tokens,
+            usage_total_tokens=item.usage_total_tokens,
         ))
     def latest_for_source(self, source_id: str) -> ProcessingRun | None:
         rows = self.session.scalars(select(ProcessingRunRow).order_by(ProcessingRunRow.started_at.desc(), ProcessingRunRow.identifier.desc())).all()

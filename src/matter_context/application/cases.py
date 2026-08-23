@@ -6,6 +6,7 @@ from typing import Callable, Protocol
 
 from matter_context.domain import ContentBlock, Matter, NarrativeUpdateType, SourceRecord
 
+from .generation import OrganizedUpdateResult, StructuredGenerationService
 from .matters import MatterService
 from .persistence import AttachmentStorePort, UnitOfWorkFactory
 
@@ -128,15 +129,18 @@ class MatterWorkspaceService(Protocol):
         correction_of_id: str | None = None,
     ) -> WorkspaceSource: ...
     def ingest_document(self, matter_id: str, file_path: str, *, on_registered: Callable[[object], None] | None = None): ...
+    def organize_selected_source(self, matter_id: str, source_id: str) -> OrganizedUpdateResult: ...
 
 
 class PersistedMatterWorkspaceService:
     """Thin desktop-facing service that reuses the append-only MatterService."""
 
-    def __init__(self, uow_factory: UnitOfWorkFactory, attachment_store: AttachmentStorePort | None = None) -> None:
+    def __init__(self, uow_factory: UnitOfWorkFactory, attachment_store: AttachmentStorePort | None = None,
+                 generation_service: StructuredGenerationService | None = None) -> None:
         self._matters = MatterService(uow_factory)
         self._uow_factory = uow_factory
         self._attachment_store = attachment_store
+        self._generation = generation_service or StructuredGenerationService(uow_factory)
 
     @staticmethod
     def _workspace_matter(matter: Matter) -> WorkspaceMatter:
@@ -188,3 +192,6 @@ class PersistedMatterWorkspaceService:
             raise RuntimeError("Document attachment storage is unavailable")
         from .ingestion import DocumentIngestionService
         return DocumentIngestionService(self._uow_factory, self._attachment_store).ingest(matter_id, file_path, on_registered=on_registered)
+
+    def organize_selected_source(self, matter_id: str, source_id: str) -> OrganizedUpdateResult:
+        return self._generation.organize_selected_source(matter_id, source_id)

@@ -109,3 +109,7 @@ PySide6 and Qt distribution obligations must be reviewed and documented before t
 - LangChain, LlamaIndex, or a multi-agent framework as foundational dependencies;
 - a vector database, knowledge graph, Redis, Celery, or background service cluster;
 - automatic cloud synchronization of private matter data.
+
+# Structured generation
+
+The application uses a small OpenAI-compatible JSON adapter rather than a provider routing framework. Pydantic validates all returned organized updates. API keys stay environment-only and typed failures are redacted before reaching task/UI boundaries.

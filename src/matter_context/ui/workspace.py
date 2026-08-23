@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget,
 )
-from matter_context.execution.tasks import DocumentIngestionTask
+from matter_context.execution.tasks import DocumentIngestionTask, StructuredGenerationTask
 from matter_context.ui.background import QtBackgroundExecutor
 
 from matter_context.application.cases import (
@@ -228,6 +228,12 @@ class MatterWorkspaceWidget(QWidget):
         self.source_list.setAccessibleName("Case sources and updates")
         self.source_list.currentItemChanged.connect(self.show_selected_source)
         source_layout.addWidget(self.source_list)
+        self.organize_selected_source = QPushButton("Organize selected source", self.sources_page)
+        self.organize_selected_source.setObjectName("organizeSelectedSourceButton")
+        self.organize_selected_source.setAccessibleName("Organize selected source")
+        self.organize_selected_source.setEnabled(False)
+        self.organize_selected_source.clicked.connect(self.organize_current_source)
+        source_layout.addWidget(self.organize_selected_source)
         self.source_state = QLabel("Drop TXT, DOCX, or PDF files here, or use Add files.", self.sources_page)
         self.source_state.setObjectName("sourceIngestionStatus")
         self.source_state.setWordWrap(True)
@@ -356,7 +362,9 @@ class MatterWorkspaceWidget(QWidget):
             self.pdf_page.setEnabled(False)
             self.open_pdf_page_button.setEnabled(False)
             self.open_original.setEnabled(False)
+            self.organize_selected_source.setEnabled(False)
             return
+        self.organize_selected_source.setEnabled(True)
         self.open_original.setEnabled(source.original_path is not None)
         if source.text is not None:
             self.pdf_preview.setVisible(False)
@@ -391,6 +399,26 @@ class MatterWorkspaceWidget(QWidget):
         source = next((entry for entry in self._sources if item and entry.identifier == item.data(Qt.ItemDataRole.UserRole)), None)
         if source and source.original_path:
             QDesktopServices.openUrl(QUrl.fromLocalFile(source.original_path))
+
+    def organize_current_source(self) -> None:
+        item = self.source_list.currentItem()
+        source_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not source_id:
+            return
+        self.organize_selected_source.setEnabled(False)
+        self.source_state.setText("Organizing selected source…")
+        handle = self._executor.submit(StructuredGenerationTask(self._service, self._matter_id, source_id))
+        handle.signals.progress.connect(lambda event: self.source_state.setText(event.message))
+        handle.signals.completed.connect(self._generation_finished)
+        handle.signals.failed.connect(self._generation_failed)
+
+    def _generation_finished(self, result: object) -> None:
+        self.source_state.setText(f"Organized update ready: {getattr(result, 'summary', '')}")
+        self.reload()
+
+    def _generation_failed(self, failure: object) -> None:
+        self.source_state.setText(str(failure))
+        self.organize_selected_source.setEnabled(self.source_list.currentItem() is not None)
 
     def open_update_editor(self) -> None:
         dialog = CaseUpdateDialog(self._service, self._matter_id, self._sources, self)

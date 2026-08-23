@@ -17,3 +17,7 @@ src/matter_context/
 This is a modular monolith, not a set of deployable services. The `ui` package may depend on application services; domain, application, storage, ingestion, AI, and workflow code must not depend on Qt widgets. Directories should be created when their first implementation is added, rather than maintained as empty placeholders.
 
 Document ingestion is local-only: validation permits TXT, DOCX, and PDF files up to 50 MiB, preserves originals under runtime attachments, and records parser metadata plus durable extraction status.
+
+# MatterContext package
+
+Structured generation is provider-neutral and owner-configured exclusively through `MATTER_CONTEXT_MODEL_*` environment values. The workspace exposes only an explicit selected-source organization action; its `organized-update/v1` result is display-only and processing metadata never includes API keys.

@@ -117,9 +117,14 @@ The installed desktop entry point is also available after installation:
 
 ```powershell
 matter-context --smoke-test
+matter-context --check-model-connection
 ```
 
 `--smoke-test` starts the Qt application and exits promptly. It is used for automated checks and does not open a browser, start an HTTP listener, or require any separately managed service.
+
+## Structured generation
+
+Model configuration is owner-only through the blank `MATTER_CONTEXT_MODEL_*` environment variables in `.env.example`; credentials are never stored in the matter database or normal UI state. With all three connection values blank, MatterContext uses its deterministic offline fake. `--check-model-connection` sends a fixed synthetic payload only. Matter content is sent only after the lawyer clicks **Organize selected source**; that versioned `organized-update/v1` workflow records an audit `ProcessingRun` but cannot change sources, claims, reviews, or Case Briefs. Invalid structured output, refusals, timeout, rate limit, and temporary server failures show sanitized actionable feedback.
 
 ## Document ingestion
 
