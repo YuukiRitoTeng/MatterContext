@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the Phase 1 target architecture. The repository does not yet contain the implementation.
+This document defines the Phase 1 target architecture. Issue #4 implements the domain, SQLite persistence, migrations, and attachment-store portions; later issues add ingestion, AI, workflows, and workspace UI.
 
 ## Architectural objective
 
@@ -113,7 +113,7 @@ Later legal tasks may become versioned workflow definitions with context-selecti
 
 ## Persistence
 
-SQLite stores matter metadata, source records, extracted blocks, claims, references, review decisions, processing runs, and Case Brief versions. Original files live in an application-managed local directory and are addressed from SQLite by stable relative paths.
+SQLite stores matter metadata, source records, extracted blocks, claims, references, review decisions, processing runs, and Case Brief versions. Alembic upgrades the schema before repositories open the runtime database. Original files live in an application-managed local directory, are copied under generated identifiers, hashed with SHA-256, and are addressed from SQLite only by stable relative paths.
 
 Runtime data is never stored in the Git repository. Database migrations are required from the first implemented schema. UI state that has no domain meaning must not be mixed into matter records.
 
@@ -126,7 +126,8 @@ Retrieval is introduced later only if representative matters exceed practical di
 ## Safety and traceability rules
 
 - Raw source records are immutable from the application layer.
-- AI output cannot create a `confirmed` review state.
+- AI output can create explicit-provenance `proposed` context but cannot create a user-reviewed state (`confirmed`, `disputed`, `rejected`, or `superseded`).
+- Corrections append sources; reviewed claim changes create revision-linked claims and append review decisions instead of silently overwriting history.
 - Every proposed claim has at least one source reference or is explicitly marked as an unsupported inference.
 - Regeneration creates a new version; it does not mutate a prior Case Brief.
 - Outbound model calls are user-initiated and recorded with provider, model, workflow version, and included source identifiers.

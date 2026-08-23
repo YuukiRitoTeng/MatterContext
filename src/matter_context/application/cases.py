@@ -1,7 +1,9 @@
-"""Read-only Cases application boundary used by the initial desktop shell."""
+"""Read-only Cases application boundary used by the desktop shell."""
 
 from dataclasses import dataclass
 from typing import Protocol
+
+from .persistence import UnitOfWorkFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,8 +30,20 @@ class CasesService(Protocol):
         """Return the visible cases."""
 
 
+class PersistedCasesService:
+    """Lists durable matters without exposing SQLite to Qt."""
+
+    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+        self._uow_factory = uow_factory
+
+    def list_cases(self) -> CasesList:
+        with self._uow_factory() as uow:
+            matters = uow.matters.list()
+        return CasesList(tuple(CaseListItem(m.identifier, m.title, m.reference, m.status.value) for m in matters))
+
+
 class EmptyCasesService:
-    """Foundation implementation until matter persistence is introduced."""
+    """Empty implementation retained for focused presentation tests."""
 
     def list_cases(self) -> CasesList:
         return CasesList(items=())

@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect
+
+from matter_context.storage.database import Database, upgrade_database
+
+
+def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'fresh.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+
+    assert {"matters", "sources", "content_blocks", "claims", "source_references", "review_decisions", "processing_runs", "case_brief_versions"} <= set(inspect(database.engine).get_table_names())
+
+
+def test_alembic_honors_database_url_environment_override(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "environment.sqlite3"
+    monkeypatch.setenv("MATTER_CONTEXT_DATABASE_URL", f"sqlite:///{target}")
+    config = Config("alembic.ini")
+    command.upgrade(config, "head")
+
+    assert "matters" in inspect(Database.from_url(f"sqlite:///{target}").engine).get_table_names()

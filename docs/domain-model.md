@@ -26,7 +26,7 @@ An immutable record of something supplied to the matter.
 
 Source kinds in Phase 1:
 
-- `narrative_update` for pasted accounts, corrections, and later additions;
+- `narrative_update` for pasted accounts, corrections, later additions, and attorney updates;
 - `document` for TXT, DOCX, and PDF files.
 
 Minimum attributes:
@@ -39,7 +39,7 @@ Minimum attributes:
 - creation timestamp;
 - ingestion and extraction status.
 
-Editing an earlier narrative does not mutate the source. A correction is a new source record that can reference the earlier source.
+Editing an earlier narrative does not mutate the source. A correction is a new source record that references the earlier source. Source provenance is explicit: `original_source`, `attorney_provided`, `ai_organized`, or `ai_inferred`.
 
 ## Content block
 
@@ -58,7 +58,7 @@ A claim records:
 - normalized statement;
 - claim category;
 - provenance type, such as party account, attorney note, document statement, or model inference;
-- current review state;
+- review history from which the current effective state is derived;
 - source references;
 - creation and supersession metadata.
 
@@ -90,7 +90,11 @@ Review states:
 - `rejected`: should not be used as a matter fact;
 - `superseded`: replaced by a newer reviewed formulation without deleting history.
 
-Only a user action can confirm, dispute, or reject a claim. A processing run cannot create those states.
+Only a user action can confirm, dispute, reject, or supersede a claim. AI-generated and AI-inferred content may enter the working context as explicitly labeled `proposed` content, but a processing run cannot create a user-reviewed state.
+
+An AI actor can create only `ai_organized` or `ai_inferred` claims. It cannot label its output `attorney_provided` or `original_source`; source-derived extraction uses an explicit system/source path instead.
+
+Confirmation is not a lock. A later user correction creates a newer revision-linked claim, marks the prior formulation superseded, and preserves every earlier review decision. Conflicting claims remain separately addressable rather than being overwritten.
 
 ## Processing run
 
@@ -129,3 +133,4 @@ Generating a new brief never overwrites an earlier version.
 4. A claim without a source is labeled as an inference or missing-source item.
 5. Derived content can be regenerated without losing source or review history.
 6. Deleting or archiving a matter is an explicit user operation and is not part of automated processing.
+7. Provenance labels identify origin and traceability; they do not claim legal truth or replace professional review.
