@@ -18,7 +18,7 @@ def test_pyside_deploy_spec_has_complete_nuitka_arguments() -> None:
     assert config["nuitka"]["extra_args"]
 
 
-def test_pyside_deploy_spec_includes_only_the_sqlite_sqlalchemy_dialect() -> None:
+def test_pyside_deploy_spec_keeps_required_postgresql_and_excludes_unused_dialects() -> None:
     project_root = Path(__file__).parents[1]
     config = ConfigParser()
     config.read(project_root / "deployment" / "pysidedeploy.spec")
@@ -26,11 +26,11 @@ def test_pyside_deploy_spec_includes_only_the_sqlite_sqlalchemy_dialect() -> Non
     nuitka_args = set(split(config["nuitka"]["extra_args"]))
 
     assert "--include-package=sqlalchemy.dialects.sqlite" in nuitka_args
+    assert "--nofollow-import-to=sqlalchemy.dialects.postgresql" not in nuitka_args
     assert {
         "--nofollow-import-to=sqlalchemy.dialects.mssql",
         "--nofollow-import-to=sqlalchemy.dialects.mysql",
         "--nofollow-import-to=sqlalchemy.dialects.oracle",
-        "--nofollow-import-to=sqlalchemy.dialects.postgresql",
     } <= nuitka_args
 
 
