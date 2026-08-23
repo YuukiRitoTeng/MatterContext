@@ -98,6 +98,40 @@ Phase 1 is a Windows desktop application built with Python, PySide6, and Qt Widg
 
 ## Status
 
-Product, architecture, and desktop-client direction confirmed. No working application or production legal workflow has been implemented yet.
+The desktop shell foundation is available. It starts at `Cases` and intentionally shows an empty state until matter persistence is implemented.
+
+## Development setup
+
+MatterContext requires Python 3.12 or newer and PowerShell 7 on Windows. From a fresh checkout:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+python -m pytest
+python -m matter_context
+```
+
+The installed desktop entry point is also available after installation:
+
+```powershell
+matter-context --smoke-test
+```
+
+`--smoke-test` starts the Qt application and exits promptly. It is used for automated checks and does not open a browser, start an HTTP listener, or require any separately managed service.
+
+## Runtime data and packaging smoke
+
+Runtime configuration, databases, attachments, caches, and diagnostics are created outside the checkout. By default they use the platform application-data locations; tests and managed deployments may set `MATTER_CONTEXT_CONFIG_DIR`, `MATTER_CONTEXT_DATA_DIR`, `MATTER_CONTEXT_ATTACHMENTS_DIR`, `MATTER_CONTEXT_CACHE_DIR`, and `MATTER_CONTEXT_DIAGNOSTICS_DIR` to isolated locations. Never put credentials in `.env.example` or source control.
+
+Build and launch the early Windows standalone smoke artifact with:
+
+```powershell
+python -m pip install -e ".[package]"
+pwsh -File .\scripts\build-smoke.ps1
+```
+
+This invokes the PySide6/Nuitka deployment path and runs the produced executable directly with `--smoke-test`; it is not an installer or updater.
 
 MatterContext is assistive software. It does not replace a qualified lawyer's professional judgment, source verification, or responsibility for legal work.
