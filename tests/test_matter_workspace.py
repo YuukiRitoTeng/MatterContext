@@ -1,21 +1,74 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QPlainTextEdit, QPushButton
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+from PySide6.QtGui import QDropEvent
+from PySide6.QtWidgets import QFileDialog, QPlainTextEdit, QPushButton
 
 from matter_context.application.cases import (
-    PersistedCasesService, PersistedMatterWorkspaceService, short_source_excerpt,
+    PersistedCasesService, PersistedMatterWorkspaceService, WorkspaceMatter, WorkspaceSource, short_source_excerpt,
 )
 from matter_context.application.matters import MatterService
-from matter_context.domain import NarrativeUpdateType
+from matter_context.domain import ContentBlock, NarrativeUpdateType
 from matter_context.storage.database import Database, upgrade_database
+from matter_context.storage.attachments import AttachmentStore
 from matter_context.storage.unit_of_work import SqlAlchemyUnitOfWork
 from matter_context.ui.cases import CasesViewModel
 from matter_context.ui.main_window import MainWindow
-from matter_context.ui.workspace import CaseUpdateDialog
+from matter_context.ui.workspace import CaseUpdateDialog, MatterWorkspaceWidget
+
+
+class _DocumentWorkspaceService:
+    def __init__(self, sources: list[WorkspaceSource]) -> None:
+        self.sources = sources
+
+    def get_matter(self, _: str) -> WorkspaceMatter:
+        return WorkspaceMatter("matter", "Document matter", None, "Active")
+
+    def list_sources(self, _: str) -> list[WorkspaceSource]:
+        return self.sources
+
+    def ingest_document(self, _: str, __: str):
+        raise AssertionError("UI submission test replaces _submit_file")
+
+
+def _document_source(*, media_type: str = "text/plain", text: str = "Extracted 中文 text", duplicate: bool = False, original_path: str | None = None, status: str = "ready", error_summary: str | None = None) -> WorkspaceSource:
+    return WorkspaceSource(
+        "document", None, None, datetime.now(timezone.utc), None, "File", text[:20],
+        "证据.pdf" if media_type == "application/pdf" else "证据.txt", media_type, status, "failed" if status == "failed" else "extracted",
+        "existing-document" if duplicate else None,
+        (ContentBlock("block", "document", 0, text, "page:1" if media_type == "application/pdf" else "characters:0-1", page=1 if media_type == "application/pdf" else None),),
+        original_path, error_summary,
+    )
+
+
+def _write_two_page_native_pdf(path: Path) -> None:
+    def stream(text: bytes) -> bytes:
+        content = b"BT /F1 12 Tf 72 720 Td (" + text + b") Tj ET"
+        return b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>",
+        3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        4: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>",
+        5: stream(b"First page selectable native text."),
+        6: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>",
+        7: stream(b"Second page selectable native text."),
+    }
+    payload = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number in range(1, 8):
+        offsets.append(len(payload))
+        payload.extend(f"{number} 0 obj\n".encode() + objects[number] + b"\nendobj\n")
+    startxref = len(payload)
+    payload.extend(b"xref\n0 8\n0000000000 65535 f \n")
+    payload.extend(b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:]))
+    payload.extend(f"trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF\n".encode())
+    path.write_bytes(payload)
 
 
 def _services(tmp_path):
@@ -101,7 +154,7 @@ def test_add_case_update_is_directly_reachable_and_plain_text(qtbot, tmp_path) -
     qtbot.waitUntil(window._workspace.update_dialog.isVisible)
     assert editor is not None
     assert editor.focusPolicy() & Qt.FocusPolicy.TabFocus
-    assert not window._workspace.findChild(QPushButton, "addFilesButton").isEnabled()
+    assert window._workspace.findChild(QPushButton, "addFilesButton").isEnabled()
 
 
 def test_editor_submission_uses_application_update_type_values(qtbot, tmp_path) -> None:
@@ -201,3 +254,85 @@ def test_qt_widgets_use_only_application_boundaries() -> None:
                 assert not module.startswith("matter_context.domain"), f"{path.name} imports {module}"
                 if module.startswith(("matter_context.storage", "matter_context.persistence", "matter_context.application.persistence")):
                     assert path.name == "application.py", f"{path.name} imports {module}"
+
+
+def test_picker_and_drop_share_document_submission_path(qtbot, monkeypatch) -> None:
+    widget = MatterWorkspaceWidget(_DocumentWorkspaceService([]), "matter", on_cases=lambda: None)
+    qtbot.addWidget(widget)
+    submitted: list[str] = []
+    monkeypatch.setattr(widget, "_submit_file", submitted.append)
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *args: (["/tmp/picker.txt"], "Documents"))
+
+    widget.choose_files()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile("/tmp/drop.txt")])
+    widget.sources_page.dropEvent(QDropEvent(QPointF(1, 1), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+    assert submitted == ["/tmp/picker.txt", "/tmp/drop.txt"]
+
+
+def test_document_preview_duplicate_notice_and_open_original(qtbot, monkeypatch, tmp_path) -> None:
+    original = tmp_path / "managed-original.txt"
+    original.write_text("preserved", encoding="utf-8")
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([_document_source(duplicate=True, original_path=str(original))]), "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+    opened = []
+    monkeypatch.setattr("matter_context.ui.workspace.QDesktopServices.openUrl", lambda url: opened.append(url) or True)
+
+    assert "duplicate content already exists" in widget.source_list.item(0).text()
+    assert "Extracted 中文 text" in widget.preview.toPlainText()
+    assert widget.open_original.isEnabled()
+    qtbot.mouseClick(widget.open_original, Qt.MouseButton.LeftButton)
+    assert opened and Path(opened[0].toLocalFile()) == original
+
+
+def test_failed_document_status_and_sanitized_error_are_visible(qtbot, tmp_path) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'failed-ui.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    workspace = PersistedMatterWorkspaceService(factory, AttachmentStore(tmp_path / "attachments"))
+    matter = workspace.create_matter("Failed document")
+    corrupt = tmp_path / "corrupt.pdf"
+    corrupt.write_bytes(b"%PDF-1.7 malformed")
+    result = workspace.ingest_document(matter.identifier, str(corrupt))
+    assert result.status.value == "failed"
+    widget = MatterWorkspaceWidget(workspace, matter.identifier, on_cases=lambda: None)
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+
+    label = widget.source_list.item(0).text()
+    assert "[failed]" in label
+    assert "malformed" in label.lower() or "pdf" in label.lower()
+    assert str(tmp_path) not in label
+
+
+def test_pdf_preview_opens_referenced_one_based_page_in_real_native_pdf(qtbot, tmp_path) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'preview.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    workspace = PersistedMatterWorkspaceService(factory, AttachmentStore(tmp_path / "attachments"))
+    matter = workspace.create_matter("PDF preview")
+    original = tmp_path / "native.pdf"
+    _write_two_page_native_pdf(original)
+    result = workspace.ingest_document(matter.identifier, str(original))
+    assert result.status.value == "ready"
+    assert [block.page for block in workspace.list_sources(matter.identifier)[0].blocks] == [1, 2]
+    widget = MatterWorkspaceWidget(workspace, matter.identifier, on_cases=lambda: None)
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    qtbot.waitUntil(lambda: widget._pdf_document.pageCount() == 2, timeout=1500)
+    assert widget.pdf_preview.isVisible()
+    assert widget.pdf_page.value() == 1
+    assert widget.pdf_page.maximum() == 2
+    widget.pdf_page.setValue(2)
+    qtbot.mouseClick(widget.open_pdf_page_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: widget.pdf_preview.pageNavigator().currentPage() == 1, timeout=1500)

@@ -10,6 +10,8 @@ Qt is the presentation layer. Widgets call application services and display appl
 
 ## Product shell
 
+The Sources tab has one submission path for native selection and drops. It renders ingestion state and duplicate notices, previews extracted TXT/DOCX text, uses Qt PDF viewing for preserved PDFs, and opens only a resolved managed original through the operating system.
+
 MatterContext uses one primary window. The initial top-level destination is `Cases`, not a chat screen.
 
 ```text

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from matter_context.application.cases import PersistedCasesService, PersistedMatterWorkspaceService
 from matter_context.application.runtime_paths import RuntimePaths
+from matter_context.storage.attachments import AttachmentStore
 from matter_context.storage import SqlAlchemyUnitOfWork, database_for_runtime_paths
 from matter_context.ui.cases import CasesViewModel
 from matter_context.ui.main_window import MainWindow
@@ -25,11 +26,12 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 
 
 def create_main_window() -> MainWindow:
-    database = database_for_runtime_paths(RuntimePaths.for_current_platform())
+    paths = RuntimePaths.for_current_platform()
+    database = database_for_runtime_paths(paths)
     factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
     return MainWindow(
         CasesViewModel(PersistedCasesService(factory)),
-        PersistedMatterWorkspaceService(factory),
+        PersistedMatterWorkspaceService(factory, AttachmentStore(paths.attachments)),
     )
 
 

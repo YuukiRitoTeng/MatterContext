@@ -5,13 +5,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QShowEvent
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QShowEvent
+from PySide6.QtPdf import QPdfDocument
+from PySide6.QtPdfWidgets import QPdfView
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QTabWidget,
+    QFileDialog, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget,
 )
+from matter_context.execution.tasks import DocumentIngestionTask
+from matter_context.ui.background import QtBackgroundExecutor
 
 from matter_context.application.cases import (
     NARRATIVE_UPDATE_TYPE_CHOICES, MatterWorkspaceService, WorkspaceSource,
@@ -20,6 +24,23 @@ from matter_context.application.cases import (
 
 def _format_timestamp(value: datetime) -> str:
     return value.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+class SourceDropSurface(QWidget):
+    """Dedicated drop target that shares the workspace file-submission path."""
+
+    def __init__(self, submit_files: Callable[[list[str]], None], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._submit_files = submit_files
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self._submit_files([url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()])
+        event.acceptProposedAction()
 
 
 class CreateCaseDialog(QDialog):
@@ -161,10 +182,12 @@ class MatterWorkspaceWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("matterWorkspace")
+        self.setAcceptDrops(True)
         self._service = service
         self._matter_id = matter_id
         self._on_cases = on_cases
         self._sources: list[WorkspaceSource] = []
+        self._executor = QtBackgroundExecutor()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
 
@@ -189,8 +212,7 @@ class MatterWorkspaceWidget(QWidget):
         self.add_update.clicked.connect(self.open_update_editor)
         self.add_files = QPushButton("Add files", self)
         self.add_files.setObjectName("addFilesButton")
-        self.add_files.setEnabled(False)
-        self.add_files.setToolTip("File import is not available yet.")
+        self.add_files.clicked.connect(self.choose_files)
         header.addWidget(self.add_update)
         header.addWidget(self.add_files)
         layout.addLayout(header)
@@ -198,13 +220,50 @@ class MatterWorkspaceWidget(QWidget):
         self.sections = QTabWidget(self)
         self.sections.setObjectName("workspaceSections")
         self.overview = self._placeholder("Overview", "This case is ready for updates. Recent updates appear in Sources.")
-        self.sources_page = QWidget(self)
+        self.sources_page = SourceDropSurface(self.submit_files, self)
         source_layout = QVBoxLayout(self.sources_page)
         source_layout.setContentsMargins(12, 12, 12, 12)
         self.source_list = QListWidget(self.sources_page)
         self.source_list.setObjectName("matterSourceList")
         self.source_list.setAccessibleName("Case sources and updates")
+        self.source_list.currentItemChanged.connect(self.show_selected_source)
         source_layout.addWidget(self.source_list)
+        self.source_state = QLabel("Drop TXT, DOCX, or PDF files here, or use Add files.", self.sources_page)
+        self.source_state.setObjectName("sourceIngestionStatus")
+        self.source_state.setWordWrap(True)
+        source_layout.addWidget(self.source_state)
+        self.preview = QPlainTextEdit(self.sources_page)
+        self.preview.setObjectName("sourcePreview")
+        self.preview.setReadOnly(True)
+        self.preview.setPlaceholderText("Select a text source to preview extracted content.")
+        self.preview.setMinimumHeight(130)
+        source_layout.addWidget(self.preview)
+        self._pdf_document = QPdfDocument(self)
+        self.pdf_preview = QPdfView(self.sources_page)
+        self.pdf_preview.setObjectName("pdfSourcePreview")
+        self.pdf_preview.setDocument(self._pdf_document)
+        self.pdf_preview.setVisible(False)
+        self.pdf_preview.setMinimumHeight(220)
+        source_layout.addWidget(self.pdf_preview)
+        page_actions = QHBoxLayout()
+        self.pdf_page = QSpinBox(self.sources_page)
+        self.pdf_page.setObjectName("pdfPageReference")
+        self.pdf_page.setMinimum(1)
+        self.pdf_page.setEnabled(False)
+        self.open_pdf_page_button = QPushButton("Open page", self.sources_page)
+        self.open_pdf_page_button.setObjectName("openPdfPageButton")
+        self.open_pdf_page_button.setEnabled(False)
+        self.open_pdf_page_button.clicked.connect(lambda: self.open_pdf_page(self.pdf_page.value()))
+        page_actions.addWidget(QLabel("PDF page", self.sources_page))
+        page_actions.addWidget(self.pdf_page)
+        page_actions.addWidget(self.open_pdf_page_button)
+        page_actions.addStretch(1)
+        source_layout.addLayout(page_actions)
+        self.open_original = QPushButton("Open original", self.sources_page)
+        self.open_original.setObjectName("openOriginalButton")
+        self.open_original.setEnabled(False)
+        self.open_original.clicked.connect(self.open_selected_original)
+        source_layout.addWidget(self.open_original)
         self.review = self._placeholder("Review", "Review items will appear here when available.")
         self.work = self._placeholder("Work", "Case work will appear here when available.")
         self.sections.addTab(self.overview, "Overview")
@@ -244,10 +303,94 @@ class MatterWorkspaceWidget(QWidget):
                 label += f' (refers to {_format_timestamp(target.created_at)} — {target.update_type_label} — "{target.excerpt}")'
             if source.text is not None:
                 label += f"\n{source.text}"
+            else:
+                label += f" — {source.filename or 'Document'} [{source.ingestion_status}]"
+                if source.duplicate_of_id:
+                    label += " (duplicate content already exists in this case)"
+                if source.extraction_status == "needs_ocr":
+                    label += " (needs OCR)"
+                if source.error_summary:
+                    label += f"\n{source.error_summary}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, source.identifier)
             item.setToolTip(label)
             self.source_list.addItem(item)
+
+    def choose_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(self, "Add source files", "", "Documents (*.txt *.docx *.pdf)")
+        self.submit_files(paths)
+
+    def submit_files(self, paths: list[str]) -> None:
+        for path in paths:
+            self._submit_file(path)
+
+    def _submit_file(self, path: str) -> None:
+        self.source_state.setText("Registering and extracting document…")
+        handle = self._executor.submit(DocumentIngestionTask(self._service, self._matter_id, path))
+        handle.signals.progress.connect(lambda event: self.source_state.setText(event.message))
+        handle.signals.completed.connect(self._ingestion_finished)
+        handle.signals.failed.connect(lambda failure: self.source_state.setText(str(failure)))
+
+    def _ingestion_finished(self, result: object) -> None:
+        status = getattr(result, "status", "ready")
+        duplicate = getattr(result, "duplicate_of_id", None)
+        message = "Document imported" if status == "ready" else f"Document status: {status}"
+        if duplicate:
+            message += "; duplicate content already exists in this case"
+        self.source_state.setText(message)
+        self.reload()
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self.submit_files([url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()])
+        event.acceptProposedAction()
+
+    def show_selected_source(self, item: QListWidgetItem | None) -> None:
+        source = next((entry for entry in self._sources if item and entry.identifier == item.data(Qt.ItemDataRole.UserRole)), None)
+        if source is None:
+            self.preview.clear()
+            self.pdf_preview.setVisible(False)
+            self.pdf_page.setEnabled(False)
+            self.open_pdf_page_button.setEnabled(False)
+            self.open_original.setEnabled(False)
+            return
+        self.open_original.setEnabled(source.original_path is not None)
+        if source.text is not None:
+            self.pdf_preview.setVisible(False)
+            self.pdf_page.setEnabled(False)
+            self.open_pdf_page_button.setEnabled(False)
+            self.preview.setPlainText(source.text)
+        elif source.media_type == "application/pdf":
+            self.pdf_preview.setVisible(bool(source.original_path))
+            pages = [block.page for block in source.blocks if block.page is not None]
+            self.pdf_page.setRange(1, max(pages, default=1))
+            self.pdf_page.setValue(min(pages, default=1))
+            self.pdf_page.setEnabled(bool(source.original_path))
+            self.open_pdf_page_button.setEnabled(bool(source.original_path))
+            if source.original_path:
+                self._pdf_document.load(source.original_path)
+            preview = "\n\n".join(f"Page {block.page}:\n{block.text}" for block in source.blocks)
+            self.preview.setPlainText(preview or "PDF has insufficient text and needs OCR.")
+        else:
+            self.pdf_preview.setVisible(False)
+            self.pdf_page.setEnabled(False)
+            self.open_pdf_page_button.setEnabled(False)
+            self.preview.setPlainText("\n\n".join(block.text for block in source.blocks))
+
+    def open_pdf_page(self, page: int) -> None:
+        """Navigate a one-based source page reference in the embedded PDF viewer."""
+        if page < 1:
+            raise ValueError("PDF page references are one-based")
+        self.pdf_preview.pageNavigator().jump(page - 1, QPointF(), 0)
+
+    def open_selected_original(self) -> None:
+        item = self.source_list.currentItem()
+        source = next((entry for entry in self._sources if item and entry.identifier == item.data(Qt.ItemDataRole.UserRole)), None)
+        if source and source.original_path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(source.original_path))
 
     def open_update_editor(self) -> None:
         dialog = CaseUpdateDialog(self._service, self._matter_id, self._sources, self)

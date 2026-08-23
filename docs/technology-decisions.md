@@ -6,6 +6,8 @@ These are confirmed Phase 1 implementation choices. They favor a dependable Wind
 
 ## Application stack
 
+Document input is bounded at 50 MiB and path-checked before copying. The original is then preserved and registered before extension plus TXT/PDF/DOCX signature validation and extraction, so rejected formats remain auditable. `python-docx` extracts nonempty paragraphs, while `pypdf` extracts ordered native PDF pages. A PDF with zero blocks or fewer than 20 characters is marked `needs_ocr`, not silently accepted as text. Processing records retain parser name/version, duration, status, and a sanitized error summary.
+
 - **Language:** Python 3.12 or newer within the supported dependency range.
 - **Desktop UI:** PySide6 with Qt Widgets.
 - **Persistence:** SQLite through SQLAlchemy, with Alembic migrations from the first schema.

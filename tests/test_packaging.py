@@ -13,7 +13,7 @@ def test_pyside_deploy_spec_has_complete_nuitka_arguments() -> None:
     assert (project_root / config["app"]["input_file"]).is_file()
     assert config["app"]["exec_directory"] == "artifacts/package-smoke"
     assert config["python"]["packages"]
-    assert config["qt"]["modules"] == "Core,Gui,Widgets"
+    assert config["qt"]["modules"] == "Core,Gui,Widgets,Pdf,PdfWidgets"
     assert config["nuitka"]["mode"] == "onefile"
     assert config["nuitka"]["extra_args"]
 

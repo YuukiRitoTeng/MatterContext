@@ -15,3 +15,5 @@ src/matter_context/
 ```
 
 This is a modular monolith, not a set of deployable services. The `ui` package may depend on application services; domain, application, storage, ingestion, AI, and workflow code must not depend on Qt widgets. Directories should be created when their first implementation is added, rather than maintained as empty placeholders.
+
+Document ingestion is local-only: validation permits TXT, DOCX, and PDF files up to 50 MiB, preserves originals under runtime attachments, and records parser metadata plus durable extraction status.

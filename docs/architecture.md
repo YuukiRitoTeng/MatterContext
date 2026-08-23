@@ -14,6 +14,8 @@ The one-process default is an implementation choice, not a permanent constraint.
 
 ## Runtime shape
 
+Document imports cross `DocumentIngestionTask` before parser work, so Qt remains responsive. The application service validates a path, streams the original to the managed attachment root, registers a `SourceRecord` and running `ProcessingRun`, then atomically replaces extracted `ContentBlock` rows and persists terminal status. Same-matter SHA-256 matches retain a new attempted source and link it to the earliest existing source.
+
 ```text
 PySide6 / Qt Widgets desktop window
     |

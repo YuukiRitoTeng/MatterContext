@@ -8,12 +8,12 @@ icon =
 
 [python]
 python_path = python
-packages = Nuitka,ordered-set,zstandard
+packages = Nuitka,ordered-set,zstandard,docx,pypdf
 
 [qt]
 qml_files =
 excluded_qml_plugins =
-modules = Core,Gui,Widgets
+modules = Core,Gui,Widgets,Pdf,PdfWidgets
 plugins =
 
 [nuitka]

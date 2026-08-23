@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from matter_context.domain import (
@@ -31,10 +31,10 @@ def _utc(value: datetime | None) -> datetime | None:
 
 
 def _source(row: SourceRow) -> SourceRecord:
-    return SourceRecord(row.identifier, row.matter_id, SourceKind(row.kind), Provenance(row.provenance), row.payload_sha256,
-                        row.text, row.attachment_path, row.original_filename, row.media_type, row.correction_of_id,
-                        row.ingestion_status, row.extraction_status, _utc(row.created_at),
-                        NarrativeUpdateType(row.update_type) if row.update_type else None)
+    return SourceRecord(identifier=row.identifier, matter_id=row.matter_id, kind=SourceKind(row.kind), provenance=Provenance(row.provenance), payload_sha256=row.payload_sha256,
+                        text=row.text, attachment_path=row.attachment_path, original_filename=row.original_filename, media_type=row.media_type, correction_of_id=row.correction_of_id,
+                        ingestion_status=row.ingestion_status, extraction_status=row.extraction_status, duplicate_of_id=row.duplicate_of_id,
+                        created_at=_utc(row.created_at), update_type=NarrativeUpdateType(row.update_type) if row.update_type else None)
 
 
 def _claim(row: ClaimRow) -> Claim:
@@ -47,7 +47,9 @@ def _reference(row: SourceReferenceRow) -> SourceReference:
 
 
 def _block(row: ContentBlockRow) -> ContentBlock:
-    return ContentBlock(row.identifier, row.source_id, row.ordinal, row.text, row.locator, _utc(row.created_at))
+    return ContentBlock(identifier=row.identifier, source_id=row.source_id, ordinal=row.ordinal, text=row.text, locator=row.locator,
+                        created_at=_utc(row.created_at), page=row.page, paragraph=row.paragraph,
+                        character_start=row.character_start, character_end=row.character_end)
 
 
 def _review(row: ReviewDecisionRow) -> ReviewDecision:
@@ -57,7 +59,7 @@ def _review(row: ReviewDecisionRow) -> ReviewDecision:
 def _run(row: ProcessingRunRow) -> ProcessingRun:
     return ProcessingRun(row.identifier, row.matter_id, row.operation, tuple(json.loads(row.input_source_ids)),
                          ProcessingStatus(row.status), row.provider, row.model, row.workflow_version,
-                         _utc(row.started_at), _utc(row.completed_at), row.error_summary)
+                         _utc(row.started_at), _utc(row.completed_at), row.error_summary, row.parser_name, row.parser_version, row.duration_ms)
 
 
 def _brief(row: CaseBriefVersionRow) -> CaseBriefVersion:
@@ -84,22 +86,55 @@ class SqlAlchemySourceRepository:
         self.session.add(SourceRow(identifier=item.identifier, matter_id=item.matter_id, kind=item.kind.value, provenance=item.provenance.value,
                          payload_sha256=item.payload_sha256, text=item.text, attachment_path=item.attachment_path,
                          original_filename=item.original_filename, media_type=item.media_type, correction_of_id=item.correction_of_id,
+                         duplicate_of_id=item.duplicate_of_id,
                          ingestion_status=item.ingestion_status, extraction_status=item.extraction_status, created_at=item.created_at,
                          update_type=item.update_type.value if item.update_type else None))
+    def add_document_with_duplicate_detection(self, item: SourceRecord) -> str | None:
+        """Insert first, then inspect committed-in-transaction peers under SQLite's writer lock.
+
+        Flushing the insert before the lookup serializes concurrent SQLite writers: a second
+        import cannot perform its lookup until the first transaction has committed. Unlike a
+        pre-insert lookup, this always links a concurrent attempted import to an existing row.
+        """
+        self.add(item)
+        self.session.flush()
+        duplicate_id = self.session.scalar(
+            select(SourceRow.identifier).where(
+                SourceRow.matter_id == item.matter_id,
+                SourceRow.payload_sha256 == item.payload_sha256,
+                SourceRow.identifier != item.identifier,
+                SourceRow.duplicate_of_id.is_(None),
+            ).order_by(SourceRow.created_at, SourceRow.identifier)
+        )
+        if duplicate_id is not None:
+            self.session.execute(
+                update(SourceRow).where(SourceRow.identifier == item.identifier).values(duplicate_of_id=duplicate_id)
+            )
+        return duplicate_id
     def get(self, identifier: str) -> SourceRecord | None:
         row = self.session.get(SourceRow, identifier)
         return _source(row) if row else None
     def list_for_matter(self, matter_id: str) -> list[SourceRecord]:
         return [_source(row) for row in self.session.scalars(select(SourceRow).where(SourceRow.matter_id == matter_id).order_by(SourceRow.created_at)).all()]
+    def find_by_hash(self, matter_id: str, payload_sha256: str) -> SourceRecord | None:
+        row = self.session.scalar(select(SourceRow).where(SourceRow.matter_id == matter_id, SourceRow.payload_sha256 == payload_sha256).order_by(SourceRow.created_at, SourceRow.identifier))
+        return _source(row) if row else None
+    def update_status(self, identifier: str, *, ingestion_status: str, extraction_status: str) -> None:
+        self.session.execute(update(SourceRow).where(SourceRow.identifier == identifier).values(ingestion_status=ingestion_status, extraction_status=extraction_status))
 
 
 class SqlAlchemyContentBlockRepository:
     def __init__(self, session: Session) -> None: self.session = session
     def add(self, item: ContentBlock) -> None:
         self.session.add(ContentBlockRow(identifier=item.identifier, source_id=item.source_id, ordinal=item.ordinal, text=item.text,
-                         locator=item.locator, created_at=item.created_at))
+                         locator=item.locator, page=item.page, paragraph=item.paragraph, character_start=item.character_start,
+                         character_end=item.character_end, created_at=item.created_at))
     def list_for_source(self, source_id: str) -> list[ContentBlock]:
         return [_block(row) for row in self.session.scalars(select(ContentBlockRow).where(ContentBlockRow.source_id == source_id).order_by(ContentBlockRow.ordinal)).all()]
+    def replace_for_source(self, source_id: str, blocks: list[ContentBlock]) -> None:
+        self.session.execute(delete(ContentBlockRow).where(ContentBlockRow.source_id == source_id))
+        for block in blocks:
+            self.add(block)
 
 
 class SqlAlchemyClaimRepository:
@@ -139,10 +174,22 @@ class SqlAlchemyProcessingRunRepository:
         self.session.add(ProcessingRunRow(identifier=item.identifier, matter_id=item.matter_id, operation=item.operation,
                          input_source_ids=json.dumps(item.input_source_ids), status=item.status.value, provider=item.provider,
                          model=item.model, workflow_version=item.workflow_version, started_at=item.started_at,
-                         completed_at=item.completed_at, error_summary=item.error_summary))
+                         completed_at=item.completed_at, error_summary=item.error_summary, parser_name=item.parser_name,
+                         parser_version=item.parser_version, duration_ms=item.duration_ms))
     def get(self, identifier: str) -> ProcessingRun | None:
         row = self.session.get(ProcessingRunRow, identifier)
         return _run(row) if row else None
+    def update(self, item: ProcessingRun) -> None:
+        self.session.execute(update(ProcessingRunRow).where(ProcessingRunRow.identifier == item.identifier).values(
+            status=item.status.value, completed_at=item.completed_at, error_summary=item.error_summary,
+            parser_name=item.parser_name, parser_version=item.parser_version, duration_ms=item.duration_ms,
+        ))
+    def latest_for_source(self, source_id: str) -> ProcessingRun | None:
+        rows = self.session.scalars(select(ProcessingRunRow).order_by(ProcessingRunRow.started_at.desc(), ProcessingRunRow.identifier.desc())).all()
+        for row in rows:
+            if source_id in json.loads(row.input_source_ids):
+                return _run(row)
+        return None
 
 
 class SqlAlchemyCaseBriefRepository:
