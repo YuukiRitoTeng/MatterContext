@@ -26,9 +26,30 @@ if ($null -eq $artifact) {
 
 if ($null -eq $artifact) { throw 'Standalone MatterContext.exe was not produced.' }
 
-$process = Start-Process -FilePath $artifact.FullName -ArgumentList '--smoke-test' -PassThru
+$stdoutPath = Join-Path $artifactDir 'MatterContext-smoke.stdout.log'
+$stderrPath = Join-Path $artifactDir 'MatterContext-smoke.stderr.log'
+$process = Start-Process -FilePath $artifact.FullName -ArgumentList '--smoke-test' -PassThru `
+    -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+
+function Write-SmokeLogs {
+    foreach ($stream in @(
+        @{ Name = 'stdout'; Path = $stdoutPath },
+        @{ Name = 'stderr'; Path = $stderrPath }
+    )) {
+        if (Test-Path -LiteralPath $stream.Path) {
+            Write-Host "--- Packaged smoke test $($stream.Name) ---"
+            Get-Content -LiteralPath $stream.Path
+        }
+    }
+}
+
 if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
     Stop-Process -Id $process.Id -Force
+    $process.WaitForExit()
+    Write-SmokeLogs
     throw "Packaged smoke test exceeded $TimeoutSeconds seconds."
 }
-if ($process.ExitCode -ne 0) { throw "Packaged smoke test failed with exit code $($process.ExitCode)." }
+if ($process.ExitCode -ne 0) {
+    Write-SmokeLogs
+    throw "Packaged smoke test failed with exit code $($process.ExitCode)."
+}

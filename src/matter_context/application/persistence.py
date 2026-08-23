@@ -1,0 +1,73 @@
+"""Persistence ports used by framework-independent application services."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import AbstractContextManager
+from typing import Protocol
+
+from matter_context.domain import (
+    CaseBriefVersion, Claim, ContentBlock, Matter, ProcessingRun, ReviewDecision,
+    SourceRecord, SourceReference,
+)
+
+
+class MatterRepository(Protocol):
+    def add(self, matter: Matter) -> None: ...
+    def get(self, identifier: str) -> Matter | None: ...
+    def list(self) -> list[Matter]: ...
+
+
+class SourceRepository(Protocol):
+    def add(self, source: SourceRecord) -> None: ...
+    def get(self, identifier: str) -> SourceRecord | None: ...
+    def list_for_matter(self, matter_id: str) -> list[SourceRecord]: ...
+
+
+class ContentBlockRepository(Protocol):
+    def add(self, block: ContentBlock) -> None: ...
+    def list_for_source(self, source_id: str) -> list[ContentBlock]: ...
+
+
+class ClaimRepository(Protocol):
+    def add(self, claim: Claim) -> None: ...
+    def get(self, identifier: str) -> Claim | None: ...
+    def list_for_matter(self, matter_id: str) -> list[Claim]: ...
+
+
+class SourceReferenceRepository(Protocol):
+    def add(self, reference: SourceReference) -> None: ...
+    def list_for_claim(self, claim_id: str) -> list[SourceReference]: ...
+
+
+class ReviewRepository(Protocol):
+    def add(self, decision: ReviewDecision) -> None: ...
+    def list_for_claim(self, claim_id: str) -> list[ReviewDecision]: ...
+
+
+class ProcessingRunRepository(Protocol):
+    def add(self, run: ProcessingRun) -> None: ...
+    def get(self, identifier: str) -> ProcessingRun | None: ...
+
+
+class CaseBriefRepository(Protocol):
+    def add(self, brief: CaseBriefVersion) -> None: ...
+    def get(self, identifier: str) -> CaseBriefVersion | None: ...
+
+
+class UnitOfWork(AbstractContextManager["UnitOfWork"], Protocol):
+    matters: MatterRepository
+    sources: SourceRepository
+    content_blocks: ContentBlockRepository
+    claims: ClaimRepository
+    source_references: SourceReferenceRepository
+    reviews: ReviewRepository
+    processing_runs: ProcessingRunRepository
+    case_briefs: CaseBriefRepository
+
+    def commit(self) -> None: ...
+    def rollback(self) -> None: ...
+
+
+class UnitOfWorkFactory(Protocol):
+    def __call__(self) -> UnitOfWork: ...
