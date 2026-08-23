@@ -35,6 +35,7 @@ class SourceRow(Base):
     original_filename: Mapped[str | None] = mapped_column(String(1024))
     media_type: Mapped[str | None] = mapped_column(String(255))
     correction_of_id: Mapped[str | None] = mapped_column(ForeignKey("sources.identifier"))
+    duplicate_of_id: Mapped[str | None] = mapped_column(ForeignKey("sources.identifier"))
     ingestion_status: Mapped[str] = mapped_column(String(32), nullable=False)
     extraction_status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -49,6 +50,10 @@ class ContentBlockRow(Base):
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     locator: Mapped[str | None] = mapped_column(String(1024))
+    page: Mapped[int | None] = mapped_column(Integer)
+    paragraph: Mapped[int | None] = mapped_column(Integer)
+    character_start: Mapped[int | None] = mapped_column(Integer)
+    character_end: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -100,6 +105,9 @@ class ProcessingRunRow(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_summary: Mapped[str | None] = mapped_column(Text)
+    parser_name: Mapped[str | None] = mapped_column(String(128))
+    parser_version: Mapped[str | None] = mapped_column(String(128))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
 
 
 class CaseBriefVersionRow(Base):

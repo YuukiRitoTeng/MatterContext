@@ -60,6 +60,21 @@ class ProcessingStatus(StrEnum):
     PARTIAL = "partial"
 
 
+class IngestionStatus(StrEnum):
+    PROCESSING = "processing"
+    READY = "ready"
+    NEEDS_OCR = "needs_ocr"
+    FAILED = "failed"
+
+
+class ExtractionStatus(StrEnum):
+    NOT_STARTED = "not_started"
+    RUNNING = "running"
+    EXTRACTED = "extracted"
+    NEEDS_OCR = "needs_ocr"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class Matter:
     identifier: str
@@ -83,10 +98,11 @@ class SourceRecord:
     original_filename: str | None = None
     media_type: str | None = None
     correction_of_id: str | None = None
-    ingestion_status: str = "ready"
-    extraction_status: str = "not_started"
+    ingestion_status: IngestionStatus | str = IngestionStatus.READY
+    extraction_status: ExtractionStatus | str = ExtractionStatus.NOT_STARTED
     created_at: datetime = field(default_factory=utcnow)
     update_type: NarrativeUpdateType | None = None
+    duplicate_of_id: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.payload_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.payload_sha256):
@@ -105,6 +121,10 @@ class ContentBlock:
     text: str
     locator: str | None = None
     created_at: datetime = field(default_factory=utcnow)
+    page: int | None = None
+    paragraph: int | None = None
+    character_start: int | None = None
+    character_end: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +183,9 @@ class ProcessingRun:
     started_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
     error_summary: str | None = None
+    parser_name: str | None = None
+    parser_version: str | None = None
+    duration_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

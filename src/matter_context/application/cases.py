@@ -2,12 +2,12 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Callable, Protocol
 
-from matter_context.domain import Matter, NarrativeUpdateType, SourceRecord
+from matter_context.domain import ContentBlock, Matter, NarrativeUpdateType, SourceRecord
 
 from .matters import MatterService
-from .persistence import UnitOfWorkFactory
+from .persistence import AttachmentStorePort, UnitOfWorkFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +82,14 @@ class WorkspaceSource:
     update_type: str | None
     update_type_label: str
     excerpt: str
+    filename: str | None = None
+    media_type: str | None = None
+    ingestion_status: str = "ready"
+    extraction_status: str = "not_started"
+    duplicate_of_id: str | None = None
+    blocks: tuple[ContentBlock, ...] = ()
+    original_path: str | None = None
+    error_summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,25 +127,39 @@ class MatterWorkspaceService(Protocol):
         self, matter_id: str, text: str, *, update_type: str,
         correction_of_id: str | None = None,
     ) -> WorkspaceSource: ...
+    def ingest_document(self, matter_id: str, file_path: str, *, on_registered: Callable[[object], None] | None = None): ...
 
 
 class PersistedMatterWorkspaceService:
     """Thin desktop-facing service that reuses the append-only MatterService."""
 
-    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(self, uow_factory: UnitOfWorkFactory, attachment_store: AttachmentStorePort | None = None) -> None:
         self._matters = MatterService(uow_factory)
+        self._uow_factory = uow_factory
+        self._attachment_store = attachment_store
 
     @staticmethod
     def _workspace_matter(matter: Matter) -> WorkspaceMatter:
         return WorkspaceMatter(matter.identifier, matter.title, matter.reference, matter.status.value.title())
 
-    @staticmethod
-    def _workspace_source(source: SourceRecord) -> WorkspaceSource:
+    def _workspace_source(self, source: SourceRecord) -> WorkspaceSource:
         update_type = source.update_type.value if source.update_type is not None else None
+        with self._uow_factory() as uow:
+            blocks = tuple(uow.content_blocks.list_for_source(source.identifier))
+            run = uow.processing_runs.latest_for_source(source.identifier)
+        original_path = None
+        if self._attachment_store and source.attachment_path:
+            try:
+                original_path = str(self._attachment_store.resolve(source.attachment_path))
+            except ValueError:
+                # Legacy or manually constructed paths are never passed to the OS.
+                original_path = None
         return WorkspaceSource(
             source.identifier, source.text, source.correction_of_id, source.created_at, update_type,
             _UPDATE_TYPE_LABELS.get(update_type, "Case update" if source.text is not None else "File"),
-            short_source_excerpt(source.text),
+            short_source_excerpt(source.text or (blocks[0].text if blocks else source.original_filename)),
+            source.original_filename, source.media_type, str(source.ingestion_status), str(source.extraction_status),
+            source.duplicate_of_id, blocks, original_path, run.error_summary if run else None,
         )
 
     def create_matter(
@@ -160,3 +182,9 @@ class PersistedMatterWorkspaceService:
             matter_id, text, update_type=NarrativeUpdateType(update_type), correction_of_id=correction_of_id,
         )
         return self._workspace_source(source)
+
+    def ingest_document(self, matter_id: str, file_path: str, *, on_registered: Callable[[object], None] | None = None):
+        if self._attachment_store is None:
+            raise RuntimeError("Document attachment storage is unavailable")
+        from .ingestion import DocumentIngestionService
+        return DocumentIngestionService(self._uow_factory, self._attachment_store).ingest(matter_id, file_path, on_registered=on_registered)

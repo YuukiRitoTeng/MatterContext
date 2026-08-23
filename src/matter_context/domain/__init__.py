@@ -6,6 +6,8 @@ from .models import (
     CaseBriefVersion,
     Claim,
     ContentBlock,
+    ExtractionStatus,
+    IngestionStatus,
     Matter,
     MatterStatus,
     NarrativeUpdateType,
@@ -17,11 +19,12 @@ from .models import (
     SourceKind,
     SourceRecord,
     SourceReference,
+    utcnow,
 )
 
 __all__ = [
-    "ActorKind", "CaseBriefVersion", "Claim", "ContentBlock", "DomainInvariantError",
+    "ActorKind", "CaseBriefVersion", "Claim", "ContentBlock", "DomainInvariantError", "ExtractionStatus", "IngestionStatus",
     "Matter", "MatterStatus", "NarrativeUpdateType", "ProcessingRun", "ProcessingStatus", "Provenance",
     "ReviewDecision", "ReviewState", "SourceKind", "SourceMutationError", "SourceRecord",
-    "SourceReference", "UnauthorizedReviewError",
+    "SourceReference", "UnauthorizedReviewError", "utcnow",
 ]

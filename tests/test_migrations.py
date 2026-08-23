@@ -13,6 +13,7 @@ def test_migration_scripts_resolve_from_the_storage_package() -> None:
         assert (location / "script.py.mako").is_file()
         assert (location / "versions" / "0001_initial_domain.py").is_file()
         assert (location / "versions" / "0002_narrative_update_type.py").is_file()
+        assert (location / "versions" / "0003_document_ingestion.py").is_file()
 
 
 def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
@@ -20,7 +21,12 @@ def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
     upgrade_database(str(database.engine.url))
 
     assert {"matters", "sources", "content_blocks", "claims", "source_references", "review_decisions", "processing_runs", "case_brief_versions"} <= set(inspect(database.engine).get_table_names())
-    assert "update_type" in {column["name"] for column in inspect(database.engine).get_columns("sources")}
+    source_columns = {column["name"] for column in inspect(database.engine).get_columns("sources")}
+    block_columns = {column["name"] for column in inspect(database.engine).get_columns("content_blocks")}
+    run_columns = {column["name"] for column in inspect(database.engine).get_columns("processing_runs")}
+    assert {"update_type", "duplicate_of_id"} <= source_columns
+    assert {"page", "paragraph", "character_start", "character_end"} <= block_columns
+    assert {"parser_name", "parser_version", "duration_ms"} <= run_columns
 
 
 def test_upgrade_from_0001_preserves_populated_chinese_sources_and_nullable_update_type(tmp_path) -> None:
@@ -58,22 +64,22 @@ def test_upgrade_from_0001_preserves_populated_chinese_sources_and_nullable_upda
                     "extraction_status": "not_started", "created_at": "2026-08-24 10:01:00",
                 })
 
-        command.upgrade(config, "0002")
+        command.upgrade(config, "0003_document_ingestion")
 
     with Database.from_url(url).engine.connect() as connection:
         matter = connection.execute(text("SELECT identifier, title, reference FROM matters")).mappings().one()
         sources = connection.execute(text(
-            "SELECT identifier, matter_id, text, correction_of_id, update_type FROM sources ORDER BY identifier"
+            "SELECT identifier, matter_id, text, correction_of_id, update_type, duplicate_of_id FROM sources ORDER BY identifier"
         )).mappings().all()
     assert dict(matter) == {"identifier": "matter-0001", "title": "中文案件", "reference": "MC-中文"}
     assert [dict(source) for source in sources] == [
         {
             "identifier": "source-correction", "matter_id": "matter-0001", "text": correction_text,
-            "correction_of_id": "source-original", "update_type": None,
+            "correction_of_id": "source-original", "update_type": None, "duplicate_of_id": None,
         },
         {
             "identifier": "source-original", "matter_id": "matter-0001", "text": original_text,
-            "correction_of_id": None, "update_type": None,
+            "correction_of_id": None, "update_type": None, "duplicate_of_id": None,
         },
     ]
 

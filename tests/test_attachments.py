@@ -20,3 +20,5 @@ def test_attachment_storage_hashes_payload_and_stays_contained(tmp_path) -> None
         store.resolve("../outside")
     with pytest.raises(ValueError):
         store.resolve("/absolute")
+    with pytest.raises(ValueError):
+        store.resolve("aa/not-a-generated-attachment")

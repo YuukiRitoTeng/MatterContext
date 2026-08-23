@@ -121,6 +121,10 @@ matter-context --smoke-test
 
 `--smoke-test` starts the Qt application and exits promptly. It is used for automated checks and does not open a browser, start an HTTP listener, or require any separately managed service.
 
+## Document ingestion
+
+Sources accepts UTF-8 TXT, DOCX, and native-text PDF files up to 50 MiB. Originals are copied into the local managed attachment store before background extraction. TXT character ranges, DOCX one-based paragraphs, and PDF one-based pages are persisted as content blocks. PDFs with no text or fewer than 20 extracted characters are marked `needs_ocr`; OCR itself is deliberately out of scope.
+
 ## Runtime data and packaging smoke
 
 Runtime configuration, databases, attachments, caches, and diagnostics are created outside the checkout. By default they use the platform application-data locations; tests and managed deployments may set `MATTER_CONTEXT_CONFIG_DIR`, `MATTER_CONTEXT_DATA_DIR`, `MATTER_CONTEXT_ATTACHMENTS_DIR`, `MATTER_CONTEXT_CACHE_DIR`, and `MATTER_CONTEXT_DIAGNOSTICS_DIR` to isolated locations. Never put credentials in `.env.example` or source control.

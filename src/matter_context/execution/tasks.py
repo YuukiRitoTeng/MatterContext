@@ -20,6 +20,15 @@ class TaskResult:
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentIngestionTaskResult(TaskResult):
+    source_id: str = ""
+    run_id: str = ""
+    status: str = ""
+    duplicate_of_id: str | None = None
+    error_summary: str | None = None
+
+
 class TaskFailure(Exception):
     """Sanitized failure returned through the execution boundary."""
 
@@ -77,3 +86,21 @@ class FakeTask:
         if self.mode is FakeTaskMode.FAILURE:
             raise TaskFailure("Fake task failed")
         return TaskResult("Fake task completed")
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentIngestionTask:
+    """Run document extraction outside the Qt event thread."""
+    service: object
+    matter_id: str
+    file_path: str
+
+    def run(self, cancellation: CancellationToken, report_progress: ProgressReporter) -> DocumentIngestionTaskResult:
+        cancellation.raise_if_cancelled()
+        result = self.service.ingest_document(
+            self.matter_id, self.file_path,
+            on_registered=lambda _: report_progress(TaskProgress(1, 2, "Original registered; extracting document")),
+        )
+        cancellation.raise_if_cancelled()
+        report_progress(TaskProgress(2, 2, "Extraction complete"))
+        return DocumentIngestionTaskResult("Document ingestion complete", result.source_id, result.run_id, result.status.value, result.duplicate_of_id, result.error_summary)
