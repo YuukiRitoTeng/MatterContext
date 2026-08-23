@@ -16,6 +16,7 @@ MatterContext should reuse mature software without becoming a fragile controller
 
 - Normal users should not need to start or coordinate multiple independent applications.
 - GUI automation, keyboard shortcuts, screen scraping, and clipboard control are not acceptable runtime integration mechanisms.
+- Internal threads or worker processes are acceptable when the installed application owns their complete lifecycle and reports failures through the same desktop UI.
 - Optional local model servers may be supported later, but failure to start them must be explicit and recoverable.
 - Every parser, OCR engine, model provider, and export implementation sits behind an internal adapter with tests.
 
@@ -31,7 +32,8 @@ MatterContext should reuse mature software without becoming a fragile controller
 
 The initial direction favors package dependencies rather than copied source:
 
-- FastAPI, SQLAlchemy, Alembic, Pydantic, Jinja, and pytest for the application foundation;
+- PySide6 and Qt Widgets for the desktop presentation layer;
+- SQLAlchemy, Alembic, Pydantic, and pytest for the application foundation;
 - pypdf for native PDF text extraction;
 - python-docx for DOCX input and later output;
 - an HTTP client for the first model adapter.

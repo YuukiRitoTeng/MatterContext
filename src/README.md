@@ -12,8 +12,9 @@ src/matter_context/
 ├── ingestion/    # Text, TXT, DOCX, and native-PDF adapters
 ├── ai/           # Minimal model interface and provider adapters
 ├── workflows/    # Versioned Case Brief workflow
-├── web/          # FastAPI routes, templates, and static assets
+├── execution/    # Internal background-task and worker boundaries
+├── ui/           # PySide6 presentation, view models, and desktop resources
 └── export/       # Machine-readable and human-readable exports
 ```
 
-This is a modular monolith, not a set of deployable services. Directories should be created when their first implementation is added, rather than maintained as empty placeholders.
+This is a modular monolith, not a set of deployable services. The `ui` package may depend on application services; domain, application, storage, ingestion, AI, and workflow code must not depend on Qt widgets. Directories should be created when their first implementation is added, rather than maintained as empty placeholders.
