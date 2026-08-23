@@ -8,6 +8,7 @@ from .models import (
     ContentBlock,
     Matter,
     MatterStatus,
+    NarrativeUpdateType,
     ProcessingRun,
     ProcessingStatus,
     Provenance,
@@ -20,7 +21,7 @@ from .models import (
 
 __all__ = [
     "ActorKind", "CaseBriefVersion", "Claim", "ContentBlock", "DomainInvariantError",
-    "Matter", "MatterStatus", "ProcessingRun", "ProcessingStatus", "Provenance",
+    "Matter", "MatterStatus", "NarrativeUpdateType", "ProcessingRun", "ProcessingStatus", "Provenance",
     "ReviewDecision", "ReviewState", "SourceKind", "SourceMutationError", "SourceRecord",
     "SourceReference", "UnauthorizedReviewError",
 ]

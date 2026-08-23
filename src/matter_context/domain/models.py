@@ -23,6 +23,15 @@ class SourceKind(StrEnum):
     DOCUMENT = "document"
 
 
+class NarrativeUpdateType(StrEnum):
+    """The user-selected context for a pasted case update."""
+
+    INITIAL_ACCOUNT = "initial_account"
+    LATER_INFORMATION = "later_information"
+    CORRECTION = "correction"
+    ATTORNEY_NOTE = "attorney_note"
+
+
 class Provenance(StrEnum):
     ORIGINAL_SOURCE = "original_source"
     ATTORNEY_PROVIDED = "attorney_provided"
@@ -77,6 +86,7 @@ class SourceRecord:
     ingestion_status: str = "ready"
     extraction_status: str = "not_started"
     created_at: datetime = field(default_factory=utcnow)
+    update_type: NarrativeUpdateType | None = None
 
     def __post_init__(self) -> None:
         if len(self.payload_sha256) != 64 or any(c not in "0123456789abcdef" for c in self.payload_sha256):

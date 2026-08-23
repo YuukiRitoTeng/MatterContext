@@ -6,7 +6,7 @@ from hashlib import sha256
 from uuid import uuid4
 
 from matter_context.domain import (
-    ActorKind, Claim, Matter, Provenance, ReviewDecision, ReviewState, SourceKind,
+    ActorKind, Claim, Matter, NarrativeUpdateType, Provenance, ReviewDecision, ReviewState, SourceKind,
     SourceRecord, SourceReference,
 )
 from matter_context.domain.errors import DomainInvariantError, SourceMutationError
@@ -37,6 +37,8 @@ class MatterService:
         self._uow_factory = uow_factory
 
     def create_matter(self, title: str, *, reference: str | None = None, description: str | None = None) -> Matter:
+        if not title.strip():
+            raise DomainInvariantError("A case title is required")
         matter = Matter(identifier=new_identifier(), title=title, reference=reference, description=description)
         with self._uow_factory() as uow:
             uow.matters.add(matter)
@@ -47,10 +49,26 @@ class MatterService:
         self, matter_id: str, text: str, *, provenance: Provenance = Provenance.ATTORNEY_PROVIDED,
         correction_of_id: str | None = None,
     ) -> SourceRecord:
+        return self.append_narrative_update(
+            matter_id, text, provenance=provenance, correction_of_id=correction_of_id,
+            update_type=NarrativeUpdateType.CORRECTION if correction_of_id else NarrativeUpdateType.INITIAL_ACCOUNT,
+        )
+
+    def append_narrative_update(
+        self, matter_id: str, text: str, *, update_type: NarrativeUpdateType,
+        provenance: Provenance = Provenance.ATTORNEY_PROVIDED, correction_of_id: str | None = None,
+    ) -> SourceRecord:
+        """Append an immutable pasted update through the matter transaction boundary."""
+        if not text.strip():
+            raise DomainInvariantError("A case update cannot be empty")
+        if update_type is NarrativeUpdateType.CORRECTION and correction_of_id is None:
+            raise DomainInvariantError("A correction must reference an earlier source")
+        if update_type is not NarrativeUpdateType.CORRECTION and correction_of_id is not None:
+            raise DomainInvariantError("Only a correction may reference an earlier source")
         source = SourceRecord(
             identifier=new_identifier(), matter_id=matter_id, kind=SourceKind.NARRATIVE_UPDATE,
             provenance=provenance, payload_sha256=payload_hash(text), text=text,
-            correction_of_id=correction_of_id,
+            correction_of_id=correction_of_id, update_type=update_type,
         )
         with self._uow_factory() as uow:
             if correction_of_id is not None:
@@ -61,6 +79,14 @@ class MatterService:
             uow.sources.add(source)
             uow.commit()
         return source
+
+    def get_matter(self, matter_id: str) -> Matter | None:
+        with self._uow_factory() as uow:
+            return uow.matters.get(matter_id)
+
+    def list_sources(self, matter_id: str) -> list[SourceRecord]:
+        with self._uow_factory() as uow:
+            return uow.sources.list_for_matter(matter_id)
 
     def register_document(
         self, matter_id: str, attachment_path: str, digest: str, *, original_filename: str,
