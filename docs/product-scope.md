@@ -22,7 +22,7 @@ The first problem is not general legal reasoning. It is continuity and controlle
 
 ## Phase 1 user journey
 
-1. Open the local application.
+1. Launch the installed Windows desktop application from its normal shortcut.
 2. Create a matter or select an existing one.
 3. Paste an initial case account.
 4. Return later and append another account, correction, or clarification.
@@ -31,6 +31,8 @@ The first problem is not general legal reasoning. It is continuity and controlle
 7. Review important proposals as confirmed, disputed, or rejected.
 8. Open the latest Case Brief and inspect its source references.
 9. Close and reopen the application without losing matter state.
+
+The daily workflow must not require a browser, terminal, Python installation, local-server command, or separately operated processing application. See [ui-client.md](ui-client.md) for the Phase 1 information architecture.
 
 ## Phase 1 output: Case Brief
 
@@ -61,7 +63,7 @@ The application should minimize review burden without pretending that all model 
 
 ## Phase 1 acceptance boundary
 
-Phase 1 is complete only when the full user journey works with persistent local data and synthetic test fixtures. A collection of parser functions, prompts, or command-line demos is not sufficient.
+Phase 1 is complete only when the full user journey works through the packaged desktop client with persistent local data and synthetic test fixtures. A collection of parser functions, prompts, command-line demos, or browser-only development pages is not sufficient.
 
 ## Deferred product questions
 

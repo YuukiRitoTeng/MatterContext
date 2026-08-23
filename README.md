@@ -49,6 +49,7 @@ Image-only and poorly extracted documents must be reported as requiring OCR rath
 
 The first phase is useful when a non-technical lawyer can:
 
+- install and launch one Windows desktop application without opening a terminal or browser;
 - reopen a matter and understand its current state without retelling it;
 - add a correction or missing detail without losing the original account;
 - see where important statements came from;
@@ -67,6 +68,7 @@ Phase 1 does not include:
 - a complete library of pleading and drafting workflows;
 - DOCX work-product generation;
 - a large multi-provider routing framework;
+- a browser-based primary client or user-managed local web server;
 - cloud multi-tenancy, collaboration, billing, or enterprise administration.
 
 These capabilities may be considered later only when a working matter-centered workflow demonstrates a concrete need for them.
@@ -78,15 +80,17 @@ These capabilities may be considered later only when a working matter-centered w
 - **Append, do not erase.** Later updates and corrections do not rewrite history.
 - **Human confirmation is explicit.** Models may propose; only the user confirms.
 - **Local first.** Matter data is stored locally by default, and outbound model calls are explicit.
+- **One application experience.** Internal workers may exist, but the user never coordinates services or companion applications.
 - **Provider-flexible, not router-heavy.** A small model interface prevents hard lock-in without predicting every provider.
 - **Reuse mature libraries.** Prefer well-maintained, license-compatible dependencies over fragile external application automation or unnecessary reimplementation.
 - **Simple but durable.** The shortest implementation path must still support migrations, tests, traceability, and later growth.
 
 ## Planned technical direction
 
-Phase 1 is planned as a Python application with a local server-rendered web interface, SQLite metadata storage, and a local attachment directory. Native-text parsing uses focused libraries instead of a separate document-processing application. See:
+Phase 1 is a Windows desktop application built with Python, PySide6, and Qt Widgets. The presentation layer calls framework-independent application services; domain and workflow logic does not live in Qt widgets. SQLite stores metadata, attachments stay in an application-managed local directory, and background work remains internal to the application. Native-text parsing uses focused libraries instead of a separate document-processing application. See:
 
 - [Product scope](docs/product-scope.md)
+- [Desktop client and UI](docs/ui-client.md)
 - [Architecture](docs/architecture.md)
 - [Domain model](docs/domain-model.md)
 - [Technology decisions](docs/technology-decisions.md)
@@ -94,6 +98,6 @@ Phase 1 is planned as a Python application with a local server-rendered web inte
 
 ## Status
 
-Repository repositioning stage. No working application or production legal workflow has been implemented yet.
+Product, architecture, and desktop-client direction confirmed. No working application or production legal workflow has been implemented yet.
 
 MatterContext is assistive software. It does not replace a qualified lawyer's professional judgment, source verification, or responsibility for legal work.
