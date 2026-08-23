@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matter-context"
+version = "0.1.0"
+description = "Local-first matter-centered legal workspace"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "MatterContext" }]
+dependencies = [
+    "PySide6>=6.8,<7",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.14,<2",
+    "pydantic>=2.10,<3",
+    "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-qt>=4.4,<5",
+]
+package = ["Nuitka>=2.5,<3"]
+
+[project.scripts]
+matter-context = "matter_context.ui.application:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+qt_api = "pyside6"

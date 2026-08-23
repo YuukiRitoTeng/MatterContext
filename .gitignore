@@ -38,6 +38,21 @@ htmlcov/
 *.sqlite-wal
 *.sqlite-shm
 
+# MatterContext runtime directories
+matter-context/
+attachments/
+diagnostics/
+
+# Packaging output
+*.exe
+*.msi
+*.app
+*.dmg
+*.dist-info/
+deployment/*.build/
+deployment/*.dist/
+artifacts/
+
 # Local model and parser caches
 .cache/
 models/
