@@ -288,7 +288,7 @@ def test_document_preview_duplicate_notice_and_open_original(qtbot, monkeypatch,
     assert "Extracted 中文 text" in widget.preview.toPlainText()
     assert widget.open_original.isEnabled()
     qtbot.mouseClick(widget.open_original, Qt.MouseButton.LeftButton)
-    assert opened and opened[0].toLocalFile() == str(original)
+    assert opened and Path(opened[0].toLocalFile()) == original
 
 
 def test_failed_document_status_and_sanitized_error_are_visible(qtbot, tmp_path) -> None:
