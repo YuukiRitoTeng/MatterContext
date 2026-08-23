@@ -38,6 +38,7 @@ class SourceRow(Base):
     ingestion_status: Mapped[str] = mapped_column(String(32), nullable=False)
     extraction_status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    update_type: Mapped[str | None] = mapped_column(String(32))
 
 
 class ContentBlockRow(Base):

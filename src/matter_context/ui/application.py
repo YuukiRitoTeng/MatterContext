@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from matter_context.application.cases import PersistedCasesService
+from matter_context.application.cases import PersistedCasesService, PersistedMatterWorkspaceService
 from matter_context.application.runtime_paths import RuntimePaths
 from matter_context.storage import SqlAlchemyUnitOfWork, database_for_runtime_paths
 from matter_context.ui.cases import CasesViewModel
@@ -26,9 +26,11 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 
 def create_main_window() -> MainWindow:
     database = database_for_runtime_paths(RuntimePaths.for_current_platform())
-    return MainWindow(CasesViewModel(PersistedCasesService(
-        lambda: SqlAlchemyUnitOfWork(database.session_factory),
-    )))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    return MainWindow(
+        CasesViewModel(PersistedCasesService(factory)),
+        PersistedMatterWorkspaceService(factory),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from matter_context.domain import (
-    ActorKind, CaseBriefVersion, Claim, ContentBlock, Matter, MatterStatus, ProcessingRun,
+    ActorKind, CaseBriefVersion, Claim, ContentBlock, Matter, MatterStatus, NarrativeUpdateType, ProcessingRun,
     ProcessingStatus, Provenance, ReviewDecision, ReviewState, SourceKind, SourceRecord,
     SourceReference,
 )
@@ -33,7 +33,8 @@ def _utc(value: datetime | None) -> datetime | None:
 def _source(row: SourceRow) -> SourceRecord:
     return SourceRecord(row.identifier, row.matter_id, SourceKind(row.kind), Provenance(row.provenance), row.payload_sha256,
                         row.text, row.attachment_path, row.original_filename, row.media_type, row.correction_of_id,
-                        row.ingestion_status, row.extraction_status, _utc(row.created_at))
+                        row.ingestion_status, row.extraction_status, _utc(row.created_at),
+                        NarrativeUpdateType(row.update_type) if row.update_type else None)
 
 
 def _claim(row: ClaimRow) -> Claim:
@@ -83,7 +84,8 @@ class SqlAlchemySourceRepository:
         self.session.add(SourceRow(identifier=item.identifier, matter_id=item.matter_id, kind=item.kind.value, provenance=item.provenance.value,
                          payload_sha256=item.payload_sha256, text=item.text, attachment_path=item.attachment_path,
                          original_filename=item.original_filename, media_type=item.media_type, correction_of_id=item.correction_of_id,
-                         ingestion_status=item.ingestion_status, extraction_status=item.extraction_status, created_at=item.created_at))
+                         ingestion_status=item.ingestion_status, extraction_status=item.extraction_status, created_at=item.created_at,
+                         update_type=item.update_type.value if item.update_type else None))
     def get(self, identifier: str) -> SourceRecord | None:
         row = self.session.get(SourceRow, identifier)
         return _source(row) if row else None
