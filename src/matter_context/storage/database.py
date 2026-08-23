@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from importlib.resources import as_file, files
 from pathlib import Path
 
 from alembic import command
@@ -37,10 +40,26 @@ def database_for_runtime_paths(paths: RuntimePaths) -> Database:
     return database
 
 
+@contextmanager
+def migration_script_location() -> Iterator[Path]:
+    """Yield a filesystem location for Alembic's packaged migration scripts.
+
+    Alembic loads ``env.py`` and revision modules from a directory, while
+    application resources are not necessarily directories (notably in a
+    onefile executable). ``as_file`` supplies a temporary directory when the
+    package loader needs one and leaves normal installed/source packages alone.
+    """
+    migrations = files("matter_context.storage.migrations")
+    with as_file(migrations) as location:
+        yield location
+
+
 def upgrade_database(url: str) -> None:
     """Apply packaged schema migrations before repositories open a database."""
-    config_path = Path(__file__).resolve().parents[3] / "alembic.ini"
-    config = Config(str(config_path))
-    config.set_main_option("sqlalchemy.url", url)
-    config.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
-    command.upgrade(config, "head")
+    with migration_script_location() as script_location:
+        # Do not load the repository-level alembic.ini at runtime: it is not a
+        # package resource and does not exist in a frozen onefile layout.
+        config = Config()
+        config.set_main_option("sqlalchemy.url", url)
+        config.set_main_option("script_location", str(script_location))
+        command.upgrade(config, "head")

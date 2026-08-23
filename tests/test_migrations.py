@@ -4,7 +4,14 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect
 
-from matter_context.storage.database import Database, upgrade_database
+from matter_context.storage.database import Database, migration_script_location, upgrade_database
+
+
+def test_migration_scripts_resolve_from_the_storage_package() -> None:
+    with migration_script_location() as location:
+        assert (location / "env.py").is_file()
+        assert (location / "script.py.mako").is_file()
+        assert (location / "versions" / "0001_initial_domain.py").is_file()
 
 
 def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
