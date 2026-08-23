@@ -19,4 +19,4 @@ plugins =
 [nuitka]
 macos.permissions =
 mode = onefile
-extra_args = --quiet --noinclude-qt-translations --assume-yes-for-downloads
+extra_args = --quiet --noinclude-qt-translations --assume-yes-for-downloads --include-package=sqlalchemy.dialects.sqlite --nofollow-import-to=sqlalchemy.dialects.mssql --nofollow-import-to=sqlalchemy.dialects.mysql --nofollow-import-to=sqlalchemy.dialects.oracle --nofollow-import-to=sqlalchemy.dialects.postgresql
