@@ -78,7 +78,7 @@ Qt workers, `QThreadPool`, and asynchronous tasks are valid Phase 1 implementati
 
 Registers an input as a source before attempting extraction. Each source receives a stable identifier, content hash, media type, original filename when applicable, and creation timestamp.
 
-Initial adapters handle pasted text, TXT, native-text PDF, and DOCX. Extraction results use a common page/block representation. A parser failure or insufficient PDF text produces an explicit status such as `needs_ocr` or `failed`; it must never be reported as successful empty content.
+Initial adapters handle pasted text, TXT, native-text PDF, and DOCX. Extraction results use a common page/block representation. `ready` means the active adapter considers the supported content completely extracted for this phase. A parser failure produces `failed`; no extractable native PDF text produces `needs_ocr`; and any readable-but-incomplete or unsupported structure produces `needs_review` with `partial` extraction status. None may be reported as `ready`.
 
 ### AI
 
@@ -109,8 +109,8 @@ Later legal tasks may become versioned workflow definitions with context-selecti
 2. The original file is hashed and copied into the matter attachment store.
 3. Duplicate content is detected by hash without discarding the attempted import record.
 4. A background adapter extracts page or block text when supported.
-5. Extraction quality checks determine `ready`, `needs_ocr`, or `failed`.
-6. AI processing, when requested, operates on extracted content and creates proposals with source references.
+5. Extraction quality checks determine `ready`, `needs_review`, `needs_ocr`, or `failed`.
+6. Only `ready` sources are eligible for downstream AI processing. `needs_review` and `needs_ocr` retain their original attachment and any useful blocks for review or later reprocessing.
 7. The original document and extraction metadata remain available for preview and later reprocessing.
 
 ## Persistence

@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from matter_context.ingestion.parsers import extract_document
+from matter_context.ingestion.parsers import ExtractionCompleteness, extract_document
 from matter_context.ingestion.validation import DocumentValidationError, MAX_UPLOAD_BYTES, validate_document, validate_filename, validate_storable_path
 from matter_context.application.ingestion import DocumentIngestionService
 from matter_context.application.cases import PersistedMatterWorkspaceService
@@ -33,7 +33,7 @@ def test_application_domain_and_execution_do_not_import_storage() -> None:
             ), f"{path.relative_to(source_root)} imports matter_context.storage"
 
 
-def _write_native_pdf(path: Path, page_texts: list[str]) -> None:
+def _write_native_pdf(path: Path, page_texts: list[str | None]) -> None:
     """Create a minimal selectable-text PDF without adding a production dependency."""
     objects: dict[int, bytes] = {
         1: b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -43,8 +43,8 @@ def _write_native_pdf(path: Path, page_texts: list[str]) -> None:
     for index, page_text in enumerate(page_texts):
         page_number = 4 + index * 2
         content_number = page_number + 1
-        escaped = page_text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").encode()
-        stream = b"BT /F1 12 Tf 72 720 Td (" + escaped + b") Tj ET"
+        escaped = (page_text or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").encode()
+        stream = b"BT /F1 12 Tf 72 720 Td (" + escaped + b") Tj ET" if page_text else b""
         objects[content_number] = b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
         objects[page_number] = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents " + str(content_number).encode() + b" 0 R >>"
         page_numbers.append(page_number)
@@ -135,6 +135,56 @@ def test_docx_extracts_nonempty_one_based_paragraphs(tmp_path: Path) -> None:
     assert [(block.ordinal, block.paragraph, block.text) for block in result.blocks] == [
         (0, 1, "First paragraph"), (1, 3, "第二段"),
     ]
+    assert result.completeness is ExtractionCompleteness.COMPLETE
+
+
+def test_table_only_docx_is_incomplete_not_ready_and_preserves_original(tmp_path: Path) -> None:
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "Table-only evidence"
+    path = tmp_path / "table-only.docx"
+    document.save(path)
+    database = Database.from_url(f"sqlite:///{tmp_path / 'table-only.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Table-only DOCX")
+    attachments = AttachmentStore(tmp_path / "attachments")
+
+    parsed = extract_document(path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    result = DocumentIngestionService(factory, attachments).ingest(matter.identifier, path)
+    with factory() as uow:
+        source = uow.sources.get(result.source_id)
+        blocks = uow.content_blocks.list_for_source(result.source_id)
+
+    assert parsed.blocks == ()
+    assert parsed.completeness is ExtractionCompleteness.PARTIAL
+    assert result.status.value == "needs_review"
+    assert source and str(source.ingestion_status) == "needs_review" and str(source.extraction_status) == "partial"
+    assert source and not source.is_ready_for_downstream
+    assert blocks == []
+    assert source.attachment_path and attachments.resolve(source.attachment_path).exists()
+
+
+def test_empty_docx_is_no_text_and_not_ready(tmp_path: Path) -> None:
+    docx = pytest.importorskip("docx")
+    path = tmp_path / "empty.docx"
+    docx.Document().save(path)
+    database = Database.from_url(f"sqlite:///{tmp_path / 'empty-docx.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Empty DOCX")
+
+    parsed = extract_document(path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    result = DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, path)
+    with factory() as uow:
+        source = uow.sources.get(result.source_id)
+
+    assert parsed.blocks == ()
+    assert parsed.completeness is ExtractionCompleteness.NO_TEXT
+    assert result.status.value == "needs_review"
+    assert source and str(source.ingestion_status) == "needs_review" and str(source.extraction_status) == "no_text"
+    assert source and not source.is_ready_for_downstream
 
 
 def test_persisted_docx_retains_one_based_paragraph_blocks(tmp_path: Path) -> None:
@@ -156,6 +206,7 @@ def test_persisted_docx_retains_one_based_paragraph_blocks(tmp_path: Path) -> No
 
     assert result.status.value == "ready"
     assert source and source.original_filename == "证据.docx"
+    assert source and source.is_ready_for_downstream
     assert [(block.ordinal, block.paragraph, block.text) for block in blocks] == [
         (0, 1, "English paragraph"), (1, 2, "中文段落"),
     ]
@@ -172,7 +223,31 @@ def test_scan_only_pdf_is_honestly_marked_needs_ocr(tmp_path: Path) -> None:
     result = extract_document(path, "application/pdf")
 
     assert result.blocks == ()
-    assert result.needs_ocr
+    assert result.completeness is ExtractionCompleteness.NO_TEXT
+
+
+def test_mixed_pdf_preserves_native_text_but_is_incomplete(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.pdf"
+    _write_native_pdf(path, ["First page selectable legal text.", None])
+    database = Database.from_url(f"sqlite:///{tmp_path / 'mixed.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Mixed PDF")
+
+    parsed = extract_document(path, "application/pdf")
+    result = DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, path)
+    with factory() as uow:
+        source = uow.sources.get(result.source_id)
+        blocks = uow.content_blocks.list_for_source(result.source_id)
+        run = uow.processing_runs.get(result.run_id)
+
+    assert parsed.completeness is ExtractionCompleteness.PARTIAL
+    assert [(block.page, block.text) for block in parsed.blocks] == [(1, "First page selectable legal text.")]
+    assert result.status.value == "needs_review"
+    assert source and str(source.ingestion_status) == "needs_review" and str(source.extraction_status) == "partial"
+    assert source and not source.is_ready_for_downstream
+    assert [(block.page, block.text) for block in blocks] == [(1, "First page selectable legal text.")]
+    assert run and run.status.value == "partial"
 
 
 def test_native_pdf_persists_ordered_one_based_page_blocks(tmp_path: Path) -> None:
@@ -211,7 +286,7 @@ def test_scan_only_pdf_persists_needs_ocr_status(tmp_path: Path) -> None:
         run = uow.processing_runs.get(result.run_id)
 
     assert result.status.value == "needs_ocr"
-    assert source and str(source.ingestion_status) == "needs_ocr" and str(source.extraction_status) == "needs_ocr"
+    assert source and str(source.ingestion_status) == "needs_ocr" and str(source.extraction_status) == "no_text"
     assert run and run.status.value == "partial" and run.parser_name == "pypdf"
 
 

@@ -26,6 +26,19 @@ def _format_timestamp(value: datetime) -> str:
     return value.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
+def _document_preview_message(source: WorkspaceSource, preview: str) -> str:
+    """Keep useful extracted text visible without hiding that it is incomplete."""
+    if source.ingestion_status == "needs_review":
+        heading = "Extracted text is incomplete. Review or reprocess the original before using this source."
+    elif source.ingestion_status == "needs_ocr":
+        heading = "No extractable text was found. This document needs OCR before use."
+    elif source.extraction_status == "no_text":
+        heading = "No extractable text was found. Review the original document before use."
+    else:
+        return preview
+    return f"{heading}\n\n{preview}" if preview else heading
+
+
 class SourceDropSurface(QWidget):
     """Dedicated drop target that shares the workspace file-submission path."""
 
@@ -307,8 +320,12 @@ class MatterWorkspaceWidget(QWidget):
                 label += f" — {source.filename or 'Document'} [{source.ingestion_status}]"
                 if source.duplicate_of_id:
                     label += " (duplicate content already exists in this case)"
-                if source.extraction_status == "needs_ocr":
-                    label += " (needs OCR)"
+                if source.ingestion_status == "needs_review":
+                    label += " (extracted text is incomplete; review or reprocess before use)"
+                elif source.ingestion_status == "needs_ocr":
+                    label += " (no extractable text; needs OCR)"
+                elif source.extraction_status == "no_text":
+                    label += " (no extractable text; review the original document)"
                 if source.error_summary:
                     label += f"\n{source.error_summary}"
             item = QListWidgetItem(label)
@@ -373,12 +390,12 @@ class MatterWorkspaceWidget(QWidget):
             if source.original_path:
                 self._pdf_document.load(source.original_path)
             preview = "\n\n".join(f"Page {block.page}:\n{block.text}" for block in source.blocks)
-            self.preview.setPlainText(preview or "PDF has insufficient text and needs OCR.")
+            self.preview.setPlainText(_document_preview_message(source, preview))
         else:
             self.pdf_preview.setVisible(False)
             self.pdf_page.setEnabled(False)
             self.open_pdf_page_button.setEnabled(False)
-            self.preview.setPlainText("\n\n".join(block.text for block in source.blocks))
+            self.preview.setPlainText(_document_preview_message(source, "\n\n".join(block.text for block in source.blocks)))
 
     def open_pdf_page(self, page: int) -> None:
         """Navigate a one-based source page reference in the embedded PDF viewer."""

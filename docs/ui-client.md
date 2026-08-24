@@ -47,7 +47,7 @@ The matter header keeps the matter title, optional reference, status, `Add case 
 
 - unified list of narrative updates and imported documents;
 - drag-and-drop and native file selection;
-- clear `processing`, `ready`, `needs text recognition`, and `failed` states;
+- clear `processing`, `ready`, `needs review` (partial extraction), `needs text recognition`, and `failed` states; `ready` is the only state that represents complete input for downstream work;
 - extracted-text preview for TXT and DOCX;
 - embedded PDF preview when practical, with source-page navigation;
 - an option to open the preserved original in its registered desktop application without controlling that application.

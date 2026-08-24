@@ -312,6 +312,22 @@ def test_failed_document_status_and_sanitized_error_are_visible(qtbot, tmp_path)
     assert str(tmp_path) not in label
 
 
+def test_incomplete_document_status_and_preserved_text_are_visible(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([_document_source(media_type="application/pdf", status="needs_review")]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    assert "[needs_review]" in widget.source_list.item(0).text()
+    assert "incomplete" in widget.source_list.item(0).text()
+    assert "Extracted text is incomplete" in widget.preview.toPlainText()
+    assert "Extracted 中文 text" in widget.preview.toPlainText()
+
+
 def test_pdf_preview_opens_referenced_one_based_page_in_real_native_pdf(qtbot, tmp_path) -> None:
     database = Database.from_url(f"sqlite:///{tmp_path / 'preview.sqlite3'}")
     upgrade_database(str(database.engine.url))

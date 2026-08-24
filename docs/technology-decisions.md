@@ -6,7 +6,7 @@ These are confirmed Phase 1 implementation choices. They favor a dependable Wind
 
 ## Application stack
 
-Document input is bounded at 50 MiB and path-checked before copying. The original is then preserved and registered before extension plus TXT/PDF/DOCX signature validation and extraction, so rejected formats remain auditable. `python-docx` extracts nonempty paragraphs, while `pypdf` extracts ordered native PDF pages. A PDF with zero blocks or fewer than 20 characters is marked `needs_ocr`, not silently accepted as text. Processing records retain parser name/version, duration, status, and a sanitized error summary.
+Document input is bounded at 50 MiB and path-checked before copying. The original is then preserved and registered before extension plus TXT/PDF/DOCX signature validation and extraction, so rejected formats remain auditable. `python-docx` extracts nonempty paragraphs, while `pypdf` extracts ordered native PDF pages. A PDF with no extractable native text is marked `needs_ocr`; a PDF with any page lacking native text, or a DOCX containing currently unsupported tables, is marked `needs_review` rather than silently accepted as complete. Processing records retain parser name/version, duration, status, and a sanitized error summary.
 
 - **Language:** Python 3.12 or newer within the supported dependency range.
 - **Desktop UI:** PySide6 with Qt Widgets.
@@ -46,7 +46,7 @@ Phase 1 uses focused in-process libraries:
 - `pypdf` for page-oriented text extraction from native PDFs;
 - Qt PDF widgets for embedded PDF viewing where practical.
 
-The goal is not perfect document understanding. The goal is reliable ingestion status, preserved originals, page-level source references, and a clean adapter boundary.
+The goal is not perfect document understanding. The goal is reliable ingestion status, preserved originals, page-level source references, and a clean adapter boundary. Text blocks that were recovered from an incomplete document remain available, but only `ready` sources may be treated as complete downstream input.
 
 Scanned or poorly extracted PDFs are detected and marked `needs_ocr`. OCR is not silently attempted through an external GUI or subprocess-controlled application.
 
