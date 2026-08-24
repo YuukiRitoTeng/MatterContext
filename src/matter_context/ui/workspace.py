@@ -28,12 +28,12 @@ def _format_timestamp(value: datetime) -> str:
 
 def _document_preview_message(source: WorkspaceSource, preview: str) -> str:
     """Keep useful extracted text visible without hiding that it is incomplete."""
-    if source.ingestion_status == "needs_review":
-        heading = "Extracted text is incomplete. Review or reprocess the original before using this source."
-    elif source.ingestion_status == "needs_ocr":
+    if source.ingestion_status == "needs_ocr":
         heading = "No extractable text was found. This document needs OCR before use."
     elif source.extraction_status == "no_text":
         heading = "No extractable text was found. Review the original document before use."
+    elif source.ingestion_status == "needs_review":
+        heading = "Extracted text is incomplete. Review or reprocess the original before using this source."
     else:
         return preview
     return f"{heading}\n\n{preview}" if preview else heading
@@ -320,12 +320,12 @@ class MatterWorkspaceWidget(QWidget):
                 label += f" — {source.filename or 'Document'} [{source.ingestion_status}]"
                 if source.duplicate_of_id:
                     label += " (duplicate content already exists in this case)"
-                if source.ingestion_status == "needs_review":
-                    label += " (extracted text is incomplete; review or reprocess before use)"
-                elif source.ingestion_status == "needs_ocr":
+                if source.ingestion_status == "needs_ocr":
                     label += " (no extractable text; needs OCR)"
                 elif source.extraction_status == "no_text":
                     label += " (no extractable text; review the original document)"
+                elif source.ingestion_status == "needs_review":
+                    label += " (extracted text is incomplete; review or reprocess before use)"
                 if source.error_summary:
                     label += f"\n{source.error_summary}"
             item = QListWidgetItem(label)

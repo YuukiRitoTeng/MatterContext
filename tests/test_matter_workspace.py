@@ -35,10 +35,10 @@ class _DocumentWorkspaceService:
         raise AssertionError("UI submission test replaces _submit_file")
 
 
-def _document_source(*, media_type: str = "text/plain", text: str = "Extracted 中文 text", duplicate: bool = False, original_path: str | None = None, status: str = "ready", error_summary: str | None = None) -> WorkspaceSource:
+def _document_source(*, media_type: str = "text/plain", text: str = "Extracted 中文 text", duplicate: bool = False, original_path: str | None = None, status: str = "ready", extraction_status: str | None = None, error_summary: str | None = None) -> WorkspaceSource:
     return WorkspaceSource(
         "document", None, None, datetime.now(timezone.utc), None, "File", text[:20],
-        "证据.pdf" if media_type == "application/pdf" else "证据.txt", media_type, status, "failed" if status == "failed" else "extracted",
+        "证据.pdf" if media_type == "application/pdf" else "证据.txt", media_type, status, extraction_status or ("failed" if status == "failed" else "extracted"),
         "existing-document" if duplicate else None,
         (ContentBlock("block", "document", 0, text, "page:1" if media_type == "application/pdf" else "characters:0-1", page=1 if media_type == "application/pdf" else None),),
         original_path, error_summary,
@@ -326,6 +326,25 @@ def test_incomplete_document_status_and_preserved_text_are_visible(qtbot) -> Non
     assert "incomplete" in widget.source_list.item(0).text()
     assert "Extracted text is incomplete" in widget.preview.toPlainText()
     assert "Extracted 中文 text" in widget.preview.toPlainText()
+
+
+def test_no_text_status_takes_priority_over_needs_review(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([
+            _document_source(media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", text="", status="needs_review", extraction_status="no_text"),
+        ]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    label = widget.source_list.item(0).text()
+    assert "no extractable text" in label
+    assert "incomplete" not in label
+    assert "No extractable text was found" in widget.preview.toPlainText()
+    assert "Extracted text is incomplete" not in widget.preview.toPlainText()
 
 
 def test_pdf_preview_opens_referenced_one_based_page_in_real_native_pdf(qtbot, tmp_path) -> None:
