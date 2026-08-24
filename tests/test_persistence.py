@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from matter_context.application.matters import MatterService, payload_hash
 from matter_context.domain import ActorKind, CaseBriefVersion, ContentBlock, ProcessingRun, ProcessingStatus, Provenance, ReviewState
@@ -250,17 +251,13 @@ def test_legacy_document_file_registration_preserves_failure_after_successful_cl
     cleanup_attempts: list[str] = []
     original_delete = attachments.delete
 
-    def fail_registration(*_args, **_kwargs):
-        raise RuntimeError("registration failed")
-
     def record_successful_cleanup(relative_path: str) -> None:
         cleanup_attempts.append(relative_path)
         original_delete(relative_path)
 
-    monkeypatch.setattr(app, "register_document", fail_registration)
     monkeypatch.setattr(attachments, "delete", record_successful_cleanup)
 
-    with pytest.raises(RuntimeError, match="registration failed") as error:
+    with pytest.raises(IntegrityError) as error:
         app.register_document_file(
             "missing-matter", str(original), attachments,
             original_filename="evidence.txt", media_type="text/plain",
@@ -278,17 +275,13 @@ def test_legacy_document_file_registration_preserves_failure_after_failed_cleanu
     attachments = AttachmentStore(tmp_path / "attachments")
     cleanup_attempts: list[str] = []
 
-    def fail_registration(*_args, **_kwargs):
-        raise RuntimeError("registration failed")
-
     def fail_cleanup(relative_path: str) -> None:
         cleanup_attempts.append(relative_path)
         raise RuntimeError("cleanup failed")
 
-    monkeypatch.setattr(app, "register_document", fail_registration)
     monkeypatch.setattr(attachments, "delete", fail_cleanup)
 
-    with pytest.raises(RuntimeError, match="registration failed") as error:
+    with pytest.raises(IntegrityError) as error:
         app.register_document_file(
             "missing-matter", str(original), attachments,
             original_filename="evidence.txt", media_type="text/plain",
