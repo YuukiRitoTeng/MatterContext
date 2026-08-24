@@ -26,13 +26,25 @@ def _format_timestamp(value: datetime) -> str:
     return value.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
-def _document_preview_message(source: WorkspaceSource, preview: str) -> str:
-    """Keep useful extracted text visible without hiding that it is incomplete."""
+def _extraction_notice_kind(source: WorkspaceSource) -> str | None:
+    """Return the most specific extraction outcome shown to the user."""
     if source.ingestion_status == "needs_ocr":
+        return "needs_ocr"
+    if source.extraction_status == "no_text":
+        return "no_text"
+    if source.ingestion_status == "needs_review":
+        return "incomplete"
+    return None
+
+
+def _source_preview_message(source: WorkspaceSource, preview: str) -> str:
+    """Keep useful extracted text visible without hiding that it is incomplete."""
+    notice = _extraction_notice_kind(source)
+    if notice == "needs_ocr":
         heading = "No extractable text was found. This document needs OCR before use."
-    elif source.extraction_status == "no_text":
+    elif notice == "no_text":
         heading = "No extractable text was found. Review the original document before use."
-    elif source.ingestion_status == "needs_review":
+    elif notice == "incomplete":
         heading = "Extracted text is incomplete. Review or reprocess the original before using this source."
     else:
         return preview
@@ -314,20 +326,21 @@ class MatterWorkspaceWidget(QWidget):
             if source.correction_of_id in source_by_id:
                 target = source_by_id[source.correction_of_id]
                 label += f' (refers to {_format_timestamp(target.created_at)} — {target.update_type_label} — "{target.excerpt}")'
-            if source.text is not None:
+            if source.text:
                 label += f"\n{source.text}"
             else:
                 label += f" — {source.filename or 'Document'} [{source.ingestion_status}]"
-                if source.duplicate_of_id:
-                    label += " (duplicate content already exists in this case)"
-                if source.ingestion_status == "needs_ocr":
-                    label += " (no extractable text; needs OCR)"
-                elif source.extraction_status == "no_text":
-                    label += " (no extractable text; review the original document)"
-                elif source.ingestion_status == "needs_review":
-                    label += " (extracted text is incomplete; review or reprocess before use)"
-                if source.error_summary:
-                    label += f"\n{source.error_summary}"
+            if source.duplicate_of_id:
+                label += " (duplicate content already exists in this case)"
+            notice = _extraction_notice_kind(source)
+            if notice == "needs_ocr":
+                label += " (no extractable text; needs OCR)"
+            elif notice == "no_text":
+                label += " (no extractable text; review the original document)"
+            elif notice == "incomplete":
+                label += " (extracted text is incomplete; review or reprocess before use)"
+            if source.error_summary:
+                label += f"\n{source.error_summary}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, source.identifier)
             item.setToolTip(label)
@@ -379,7 +392,7 @@ class MatterWorkspaceWidget(QWidget):
             self.pdf_preview.setVisible(False)
             self.pdf_page.setEnabled(False)
             self.open_pdf_page_button.setEnabled(False)
-            self.preview.setPlainText(source.text)
+            self.preview.setPlainText(_source_preview_message(source, source.text))
         elif source.media_type == "application/pdf":
             self.pdf_preview.setVisible(bool(source.original_path))
             pages = [block.page for block in source.blocks if block.page is not None]
@@ -390,12 +403,12 @@ class MatterWorkspaceWidget(QWidget):
             if source.original_path:
                 self._pdf_document.load(source.original_path)
             preview = "\n\n".join(f"Page {block.page}:\n{block.text}" for block in source.blocks)
-            self.preview.setPlainText(_document_preview_message(source, preview))
+            self.preview.setPlainText(_source_preview_message(source, preview))
         else:
             self.pdf_preview.setVisible(False)
             self.pdf_page.setEnabled(False)
             self.open_pdf_page_button.setEnabled(False)
-            self.preview.setPlainText(_document_preview_message(source, "\n\n".join(block.text for block in source.blocks)))
+            self.preview.setPlainText(_source_preview_message(source, "\n\n".join(block.text for block in source.blocks)))
 
     def open_pdf_page(self, page: int) -> None:
         """Navigate a one-based source page reference in the embedded PDF viewer."""
