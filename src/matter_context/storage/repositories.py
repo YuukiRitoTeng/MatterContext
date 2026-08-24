@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from matter_context.domain import (
     ActorKind, CaseBriefVersion, Claim, ContentBlock, Matter, MatterStatus, NarrativeUpdateType, ProcessingRun,
-    ProcessingStatus, Provenance, ReviewDecision, ReviewState, SourceKind, SourceRecord,
+    ProcessingRunTransitionError, ProcessingStatus, Provenance, ReviewDecision, ReviewState, SourceKind, SourceRecord,
     SourceReference,
 )
 
@@ -120,7 +120,13 @@ class SqlAlchemySourceRepository:
         row = self.session.scalar(select(SourceRow).where(SourceRow.matter_id == matter_id, SourceRow.payload_sha256 == payload_sha256).order_by(SourceRow.created_at, SourceRow.identifier))
         return _source(row) if row else None
     def update_status(self, identifier: str, *, ingestion_status: str, extraction_status: str) -> None:
-        self.session.execute(update(SourceRow).where(SourceRow.identifier == identifier).values(ingestion_status=ingestion_status, extraction_status=extraction_status))
+        result = self.session.execute(
+            update(SourceRow).where(SourceRow.identifier == identifier).values(
+                ingestion_status=ingestion_status, extraction_status=extraction_status,
+            )
+        )
+        if result.rowcount != 1:
+            raise ProcessingRunTransitionError("Source status update requires an existing source")
 
 
 class SqlAlchemyContentBlockRepository:
@@ -170,7 +176,9 @@ class SqlAlchemyReviewRepository:
 
 class SqlAlchemyProcessingRunRepository:
     def __init__(self, session: Session) -> None: self.session = session
-    def add(self, item: ProcessingRun) -> None:
+    def start(self, item: ProcessingRun) -> None:
+        if item.status is not ProcessingStatus.RUNNING:
+            raise ProcessingRunTransitionError("Only a running processing run can be started")
         self.session.add(ProcessingRunRow(identifier=item.identifier, matter_id=item.matter_id, operation=item.operation,
                          input_source_ids=json.dumps(item.input_source_ids), status=item.status.value, provider=item.provider,
                          model=item.model, workflow_version=item.workflow_version, started_at=item.started_at,
@@ -179,11 +187,18 @@ class SqlAlchemyProcessingRunRepository:
     def get(self, identifier: str) -> ProcessingRun | None:
         row = self.session.get(ProcessingRunRow, identifier)
         return _run(row) if row else None
-    def update(self, item: ProcessingRun) -> None:
-        self.session.execute(update(ProcessingRunRow).where(ProcessingRunRow.identifier == item.identifier).values(
+    def finish(self, item: ProcessingRun) -> None:
+        if item.status is ProcessingStatus.RUNNING:
+            raise ProcessingRunTransitionError("A running processing run cannot be finished")
+        result = self.session.execute(update(ProcessingRunRow).where(
+            ProcessingRunRow.identifier == item.identifier,
+            ProcessingRunRow.status == ProcessingStatus.RUNNING.value,
+        ).values(
             status=item.status.value, completed_at=item.completed_at, error_summary=item.error_summary,
             parser_name=item.parser_name, parser_version=item.parser_version, duration_ms=item.duration_ms,
         ))
+        if result.rowcount != 1:
+            raise ProcessingRunTransitionError("Processing run is missing or is no longer running")
     def latest_for_source(self, source_id: str) -> ProcessingRun | None:
         rows = self.session.scalars(select(ProcessingRunRow).order_by(ProcessingRunRow.started_at.desc(), ProcessingRunRow.identifier.desc())).all()
         for row in rows:

@@ -1,6 +1,6 @@
 """Framework-independent matter domain."""
 
-from .errors import DomainInvariantError, SourceMutationError, UnauthorizedReviewError
+from .errors import DomainInvariantError, ProcessingRunTransitionError, SourceMutationError, UnauthorizedReviewError
 from .models import (
     ActorKind,
     CaseBriefVersion,
@@ -24,7 +24,7 @@ from .models import (
 
 __all__ = [
     "ActorKind", "CaseBriefVersion", "Claim", "ContentBlock", "DomainInvariantError", "ExtractionStatus", "IngestionStatus",
-    "Matter", "MatterStatus", "NarrativeUpdateType", "ProcessingRun", "ProcessingStatus", "Provenance",
+    "Matter", "MatterStatus", "NarrativeUpdateType", "ProcessingRun", "ProcessingRunTransitionError", "ProcessingStatus", "Provenance",
     "ReviewDecision", "ReviewState", "SourceKind", "SourceMutationError", "SourceRecord",
     "SourceReference", "UnauthorizedReviewError", "utcnow",
 ]

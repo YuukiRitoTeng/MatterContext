@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
 
-from matter_context.domain import ContentBlock, ExtractionStatus, IngestionStatus, ProcessingRun, ProcessingStatus, Provenance, SourceKind, SourceRecord, utcnow
+from matter_context.domain import ContentBlock, ExtractionStatus, IngestionStatus, ProcessingRun, Provenance, SourceKind, SourceRecord
 from matter_context.ingestion.parsers import ExtractionCompleteness, extract_document, parser_metadata
 from matter_context.ingestion.validation import ValidatedDocument, media_type_for_filename, validate_document, validate_storable_path
 from .matters import new_identifier
@@ -37,42 +37,57 @@ class DocumentIngestionService:
         except Exception:
             self._attachments.delete(stored.relative_path)
             raise
-        if on_registered is not None:
-            on_registered(IngestionResult(source.identifier, run.identifier, IngestionStatus.PROCESSING, source.duplicate_of_id))
         started = monotonic()
-        parser_name, parser_version = parser_metadata(registered.media_type)
+        if on_registered is not None:
+            try:
+                on_registered(IngestionResult(source.identifier, run.identifier, IngestionStatus.PROCESSING, source.duplicate_of_id))
+            except Exception as error:
+                self._fail(source, run, error, started)
+                raise
         try:
             validated = validate_document(self._attachments.resolve(stored.relative_path), filename=registered.filename)
-            parser_name, parser_version = parser_metadata(validated.media_type)
             extracted = extract_document(validated.path, validated.media_type)
+        except Exception as error:
+            return self._fail(source, run, error, started)
+
+        try:
             blocks = [ContentBlock(identifier=new_identifier(), source_id=source.identifier, ordinal=item.ordinal, text=item.text, locator=item.locator, page=item.page, paragraph=item.paragraph, character_start=item.character_start, character_end=item.character_end) for item in extracted.blocks]
-            status, extraction, run_status = _ingestion_outcome(extracted.completeness, validated.media_type)
-            completed = replace(run, status=run_status, completed_at=utcnow(), parser_name=extracted.parser_name, parser_version=extracted.parser_version, duration_ms=round((monotonic() - started) * 1000))
+            status, extraction, completed = _ingestion_completion(run, extracted.completeness, validated.media_type, round((monotonic() - started) * 1000))
             with self._uow_factory() as uow:
                 uow.content_blocks.replace_for_source(source.identifier, blocks)
                 uow.sources.update_status(source.identifier, ingestion_status=status.value, extraction_status=extraction.value)
-                uow.processing_runs.update(completed)
+                uow.processing_runs.finish(completed)
                 uow.commit()
             return IngestionResult(source.identifier, run.identifier, status, source.duplicate_of_id)
         except Exception as error:
-            summary = _safe_error(error)
-            completed = replace(run, status=ProcessingStatus.FAILED, completed_at=utcnow(), error_summary=summary, parser_name=parser_name, parser_version=parser_version, duration_ms=round((monotonic() - started) * 1000))
-            with self._uow_factory() as uow:
-                uow.sources.update_status(source.identifier, ingestion_status=IngestionStatus.FAILED.value, extraction_status=ExtractionStatus.FAILED.value)
-                uow.processing_runs.update(completed)
-                uow.commit()
-            return IngestionResult(source.identifier, run.identifier, IngestionStatus.FAILED, source.duplicate_of_id, summary)
+            self._fail(source, run, error, started)
+            raise
 
     def _register(self, matter_id: str, document: ValidatedDocument, attachment_path: str, digest: str) -> tuple[SourceRecord, ProcessingRun]:
         with self._uow_factory() as uow:
             source = SourceRecord(identifier=new_identifier(), matter_id=matter_id, kind=SourceKind.DOCUMENT, provenance=Provenance.ORIGINAL_SOURCE, payload_sha256=digest, attachment_path=attachment_path, original_filename=document.filename, media_type=document.media_type, ingestion_status=IngestionStatus.PROCESSING, extraction_status=ExtractionStatus.RUNNING)
             parser_name, parser_version = parser_metadata(document.media_type)
-            run = ProcessingRun(new_identifier(), matter_id, "document_ingestion", (source.identifier,), ProcessingStatus.RUNNING, parser_name=parser_name, parser_version=parser_version)
+            run = ProcessingRun.start(new_identifier(), matter_id, "document_ingestion", (source.identifier,), parser_name=parser_name, parser_version=parser_version)
             duplicate_id = uow.sources.add_document_with_duplicate_detection(source)
             source = replace(source, duplicate_of_id=duplicate_id)
-            uow.processing_runs.add(run)
+            uow.processing_runs.start(run)
             uow.commit()
         return source, run
+
+    def _fail(
+        self, source: SourceRecord, run: ProcessingRun, error: Exception, started: float,
+    ) -> IngestionResult:
+        summary = _safe_error(error)
+        failed = run.fail(summary, duration_ms=round((monotonic() - started) * 1000))
+        with self._uow_factory() as uow:
+            uow.sources.update_status(
+                source.identifier,
+                ingestion_status=IngestionStatus.FAILED.value,
+                extraction_status=ExtractionStatus.FAILED.value,
+            )
+            uow.processing_runs.finish(failed)
+            uow.commit()
+        return IngestionResult(source.identifier, run.identifier, IngestionStatus.FAILED, source.duplicate_of_id, summary)
 
 
 def _safe_error(error: Exception) -> str:
@@ -80,14 +95,14 @@ def _safe_error(error: Exception) -> str:
     return message.replace("/", "").replace("\\", "")[:500]
 
 
-def _ingestion_outcome(
-    completeness: ExtractionCompleteness, media_type: str,
-) -> tuple[IngestionStatus, ExtractionStatus, ProcessingStatus]:
+def _ingestion_completion(
+    run: ProcessingRun, completeness: ExtractionCompleteness, media_type: str, duration_ms: int,
+) -> tuple[IngestionStatus, ExtractionStatus, ProcessingRun]:
     """Map parser truthfulness to durable states without treating partial text as ready."""
     if completeness is ExtractionCompleteness.COMPLETE:
-        return IngestionStatus.READY, ExtractionStatus.EXTRACTED, ProcessingStatus.SUCCEEDED
+        return IngestionStatus.READY, ExtractionStatus.EXTRACTED, run.succeed(duration_ms=duration_ms)
     if completeness is ExtractionCompleteness.PARTIAL:
-        return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.PARTIAL, ProcessingStatus.PARTIAL
+        return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.PARTIAL, run.complete_partially(duration_ms=duration_ms)
     if media_type == "application/pdf":
-        return IngestionStatus.NEEDS_OCR, ExtractionStatus.NO_TEXT, ProcessingStatus.PARTIAL
-    return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.NO_TEXT, ProcessingStatus.PARTIAL
+        return IngestionStatus.NEEDS_OCR, ExtractionStatus.NO_TEXT, run.complete_partially(duration_ms=duration_ms)
+    return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.NO_TEXT, run.complete_partially(duration_ms=duration_ms)

@@ -13,6 +13,7 @@ from matter_context.application.cases import PersistedMatterWorkspaceService
 from matter_context.application.matters import MatterService
 from matter_context.storage.attachments import AttachmentStore
 from matter_context.storage.database import Database, upgrade_database
+from matter_context.storage.repositories import SqlAlchemyContentBlockRepository, SqlAlchemySourceRepository
 from matter_context.storage.unit_of_work import SqlAlchemyUnitOfWork
 
 
@@ -247,7 +248,7 @@ def test_mixed_pdf_preserves_native_text_but_is_incomplete(tmp_path: Path) -> No
     assert source and str(source.ingestion_status) == "needs_review" and str(source.extraction_status) == "partial"
     assert source and not source.is_ready_for_downstream
     assert [(block.page, block.text) for block in blocks] == [(1, "First page selectable legal text.")]
-    assert run and run.status.value == "partial"
+    assert run and run.status.value == "partial" and run.completed_at is not None
 
 
 def test_native_pdf_persists_ordered_one_based_page_blocks(tmp_path: Path) -> None:
@@ -287,7 +288,7 @@ def test_scan_only_pdf_persists_needs_ocr_status(tmp_path: Path) -> None:
 
     assert result.status.value == "needs_ocr"
     assert source and str(source.ingestion_status) == "needs_ocr" and str(source.extraction_status) == "no_text"
-    assert run and run.status.value == "partial" and run.parser_name == "pypdf"
+    assert run and run.status.value == "partial" and run.completed_at is not None and run.parser_name == "pypdf"
 
 
 def test_validation_rejects_traversal_binary_spoof_and_oversize(tmp_path: Path) -> None:
@@ -386,6 +387,98 @@ def test_registration_failure_removes_unreferenced_managed_original(tmp_path: Pa
         service.ingest("missing-matter", document)
 
     assert not list(attachments.rglob("*"))
+
+
+def test_registration_callback_failure_closes_the_durable_run(tmp_path: Path) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'callback.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Callback failure")
+    document = tmp_path / "evidence.txt"
+    document.write_text("evidence", encoding="utf-8")
+    service = DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments"))
+
+    def fail_callback(_: object) -> None:
+        raise RuntimeError("progress callback failed")
+
+    with pytest.raises(RuntimeError, match="progress callback failed"):
+        service.ingest(matter.identifier, document, on_registered=fail_callback)
+    with factory() as uow:
+        source = uow.sources.list_for_matter(matter.identifier)[0]
+        run = uow.processing_runs.latest_for_source(source.identifier)
+
+    assert str(source.ingestion_status) == "failed" and str(source.extraction_status) == "failed"
+    assert run and run.status.value == "failed" and run.completed_at is not None
+    assert run.error_summary == "progress callback failed"
+
+
+def test_parser_failure_closes_the_durable_run(tmp_path: Path, monkeypatch) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'parser.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Parser failure")
+    document = tmp_path / "evidence.txt"
+    document.write_text("evidence", encoding="utf-8")
+    monkeypatch.setattr("matter_context.application.ingestion.extract_document", lambda *_: (_ for _ in ()).throw(RuntimeError("parser exploded")))
+
+    result = DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, document)
+    with factory() as uow:
+        source = uow.sources.get(result.source_id)
+        run = uow.processing_runs.get(result.run_id)
+
+    assert result.status.value == "failed"
+    assert source and str(source.ingestion_status) == "failed" and str(source.extraction_status) == "failed"
+    assert run and run.status.value == "failed" and run.completed_at is not None
+
+
+def test_completion_persistence_failure_closes_then_reraises(tmp_path: Path, monkeypatch) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'completion.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Completion failure")
+    document = tmp_path / "evidence.txt"
+    document.write_text("evidence", encoding="utf-8")
+    original_replace = SqlAlchemyContentBlockRepository.replace_for_source
+
+    def fail_completion(self, source_id, blocks):
+        raise RuntimeError("block persistence failed")
+
+    monkeypatch.setattr(SqlAlchemyContentBlockRepository, "replace_for_source", fail_completion)
+    with pytest.raises(RuntimeError, match="block persistence failed"):
+        DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, document)
+    monkeypatch.setattr(SqlAlchemyContentBlockRepository, "replace_for_source", original_replace)
+    with factory() as uow:
+        source = uow.sources.list_for_matter(matter.identifier)[0]
+        run = uow.processing_runs.latest_for_source(source.identifier)
+
+    assert str(source.ingestion_status) == "failed" and str(source.extraction_status) == "failed"
+    assert run and run.status.value == "failed" and run.completed_at is not None
+
+
+def test_status_completion_failure_closes_then_reraises(tmp_path: Path, monkeypatch) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'status.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Status failure")
+    document = tmp_path / "evidence.txt"
+    document.write_text("evidence", encoding="utf-8")
+    original_update = SqlAlchemySourceRepository.update_status
+
+    def fail_non_failure_status(self, identifier, *, ingestion_status, extraction_status):
+        if ingestion_status != "failed":
+            raise RuntimeError("status persistence failed")
+        return original_update(self, identifier, ingestion_status=ingestion_status, extraction_status=extraction_status)
+
+    monkeypatch.setattr(SqlAlchemySourceRepository, "update_status", fail_non_failure_status)
+    with pytest.raises(RuntimeError, match="status persistence failed"):
+        DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, document)
+    monkeypatch.setattr(SqlAlchemySourceRepository, "update_status", original_update)
+    with factory() as uow:
+        source = uow.sources.list_for_matter(matter.identifier)[0]
+        run = uow.processing_runs.latest_for_source(source.identifier)
+
+    assert str(source.ingestion_status) == "failed" and str(source.extraction_status) == "failed"
+    assert run and run.status.value == "failed" and run.completed_at is not None
 
 
 def test_workspace_exposes_only_resolved_managed_original_path(tmp_path: Path) -> None:

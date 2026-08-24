@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+from pathlib import Path
 from uuid import uuid4
 
 from matter_context.domain import (
@@ -11,7 +12,7 @@ from matter_context.domain import (
 )
 from matter_context.domain.errors import DomainInvariantError, SourceMutationError
 
-from .persistence import UnitOfWorkFactory
+from .persistence import AttachmentStorePort, UnitOfWorkFactory
 
 
 def new_identifier() -> str:
@@ -109,15 +110,19 @@ class MatterService:
         return source
 
     def register_document_file(
-        self, matter_id: str, payload_path: str, attachment_store: object, *,
+        self, matter_id: str, payload_path: str, attachment_store: AttachmentStorePort, *,
         original_filename: str, media_type: str | None = None,
     ) -> SourceRecord:
         """Copy an original into the managed store before recording its stable path."""
-        stored = attachment_store.store(payload_path)
-        return self.register_document(
-            matter_id, stored.relative_path, stored.sha256,
-            original_filename=original_filename, media_type=media_type,
-        )
+        stored = attachment_store.store(Path(payload_path))
+        try:
+            return self.register_document(
+                matter_id, stored.relative_path, stored.sha256,
+                original_filename=original_filename, media_type=media_type,
+            )
+        except Exception:
+            attachment_store.delete(stored.relative_path)
+            raise
 
     def replace_source_payload(self, source_id: str, _: str) -> None:
         """Reject mutable-source APIs; callers must append a correction instead."""
