@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from matter_context.application.matters import MatterService, payload_hash
 from matter_context.domain import ActorKind, CaseBriefVersion, ContentBlock, ProcessingRun, ProcessingStatus, Provenance, ReviewState
-from matter_context.domain.errors import DomainInvariantError, SourceMutationError
+from matter_context.domain.errors import DomainInvariantError, ProcessingRunTransitionError, SourceMutationError
 from matter_context.storage.database import Database, upgrade_database
+from matter_context.storage.attachments import AttachmentStore
 from matter_context.storage.unit_of_work import SqlAlchemyUnitOfWork
 
 
@@ -196,14 +198,95 @@ def test_derived_records_round_trip(service) -> None:
     source = app.append_narrative(matter.identifier, "Source text")
     claim = app.propose_claim(matter.identifier, "A proposed statement", "fact", Provenance.AI_ORGANIZED, source_id=source.identifier)
     block = ContentBlock("block", source.identifier, 0, "Source text", "characters:0-11")
-    run = ProcessingRun("run", matter.identifier, "organize", (source.identifier,), ProcessingStatus.SUCCEEDED, provider="provider", model="model")
+    running = ProcessingRun.start("run", matter.identifier, "organize", (source.identifier,), provider="provider", model="model")
+    run = running.succeed()
     brief = CaseBriefVersion("brief", matter.identifier, (source.identifier,), (claim.identifier,), (), "v1", "{}", "Brief")
     with SqlAlchemyUnitOfWork(database.session_factory) as uow:
         uow.content_blocks.add(block)
-        uow.processing_runs.add(run)
+        uow.processing_runs.start(running)
         uow.case_briefs.add(brief)
         uow.commit()
     with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+        uow.processing_runs.finish(run)
+        uow.commit()
+    database.engine.dispose()
+    reopened = Database.from_url(str(database.engine.url))
+    with SqlAlchemyUnitOfWork(reopened.session_factory) as uow:
         assert uow.content_blocks.list_for_source(source.identifier) == [block]
         assert uow.processing_runs.get("run") == run
         assert uow.case_briefs.get("brief") == brief
+
+
+def test_processing_run_repository_rejects_missing_and_non_running_transition_targets(service) -> None:
+    app, database = service
+    matter = app.create_matter("Matter")
+    source = app.append_narrative(matter.identifier, "Source text")
+    running = ProcessingRun.start("run", matter.identifier, "organize", (source.identifier,))
+    succeeded = running.succeed()
+
+    with pytest.raises(ProcessingRunTransitionError):
+        with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+            uow.processing_runs.finish(succeeded)
+            uow.commit()
+    with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+        uow.processing_runs.start(running)
+        uow.commit()
+    with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+        uow.processing_runs.finish(succeeded)
+        uow.commit()
+    with pytest.raises(ProcessingRunTransitionError):
+        with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+            uow.processing_runs.finish(running.fail("late failure"))
+            uow.commit()
+    with SqlAlchemyUnitOfWork(database.session_factory) as uow:
+        persisted = uow.processing_runs.get(running.identifier)
+    assert persisted == succeeded
+
+
+def test_legacy_document_file_registration_preserves_failure_after_successful_cleanup(service, tmp_path, monkeypatch) -> None:
+    app, _ = service
+    original = tmp_path / "evidence.txt"
+    original.write_text("evidence", encoding="utf-8")
+    attachments = AttachmentStore(tmp_path / "attachments")
+    cleanup_attempts: list[str] = []
+    original_delete = attachments.delete
+
+    def record_successful_cleanup(relative_path: str) -> None:
+        cleanup_attempts.append(relative_path)
+        original_delete(relative_path)
+
+    monkeypatch.setattr(attachments, "delete", record_successful_cleanup)
+
+    with pytest.raises(IntegrityError) as error:
+        app.register_document_file(
+            "missing-matter", str(original), attachments,
+            original_filename="evidence.txt", media_type="text/plain",
+        )
+
+    assert cleanup_attempts
+    assert getattr(error.value, "__notes__", None) is None
+    assert not list(attachments.root.rglob("*"))
+
+
+def test_legacy_document_file_registration_preserves_failure_after_failed_cleanup(service, tmp_path, monkeypatch) -> None:
+    app, _ = service
+    original = tmp_path / "evidence.txt"
+    original.write_text("evidence", encoding="utf-8")
+    attachments = AttachmentStore(tmp_path / "attachments")
+    cleanup_attempts: list[str] = []
+
+    def fail_cleanup(relative_path: str) -> None:
+        cleanup_attempts.append(relative_path)
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(attachments, "delete", fail_cleanup)
+
+    with pytest.raises(IntegrityError) as error:
+        app.register_document_file(
+            "missing-matter", str(original), attachments,
+            original_filename="evidence.txt", media_type="text/plain",
+        )
+
+    assert cleanup_attempts
+    assert error.value.__notes__ == ["Managed attachment cleanup also failed."]
+    assert list(attachments.root.rglob("*"))

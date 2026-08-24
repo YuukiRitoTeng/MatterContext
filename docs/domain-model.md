@@ -112,6 +112,8 @@ Minimum metadata:
 - success, failure, or partial status;
 - error summary without full sensitive input text.
 
+A processing run starts as `running` with no completion timestamp. `succeeded`, `partial`, and `failed` are terminal states and each requires a completion timestamp. A failed run also requires a sanitized failure summary. A terminal run cannot make a second terminal transition.
+
 ## Case Brief version
 
 An immutable snapshot assembled from the matter at a point in time.

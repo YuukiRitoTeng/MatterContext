@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from .errors import DomainInvariantError, UnauthorizedReviewError
+from .errors import DomainInvariantError, ProcessingRunTransitionError, UnauthorizedReviewError
 
 
 def utcnow() -> datetime:
@@ -196,6 +196,54 @@ class ProcessingRun:
     parser_name: str | None = None
     parser_version: str | None = None
     duration_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.status is ProcessingStatus.RUNNING:
+            if self.completed_at is not None:
+                raise DomainInvariantError("A running processing run cannot have a completion time")
+            if self.error_summary is not None:
+                raise DomainInvariantError("A running processing run cannot have a failure summary")
+            return
+        if self.completed_at is None:
+            raise DomainInvariantError("A terminal processing run requires a completion time")
+        if self.status is ProcessingStatus.FAILED and not (self.error_summary or "").strip():
+            raise DomainInvariantError("A failed processing run requires a failure summary")
+        if self.status is not ProcessingStatus.FAILED and self.error_summary is not None:
+            raise DomainInvariantError("Only a failed processing run may have a failure summary")
+
+    @classmethod
+    def start(
+        cls, identifier: str, matter_id: str, operation: str, input_source_ids: tuple[str, ...], *,
+        provider: str | None = None, model: str | None = None, workflow_version: str | None = None,
+        started_at: datetime | None = None, parser_name: str | None = None, parser_version: str | None = None,
+    ) -> ProcessingRun:
+        return cls(
+            identifier, matter_id, operation, input_source_ids, ProcessingStatus.RUNNING,
+            provider=provider, model=model, workflow_version=workflow_version, started_at=started_at or utcnow(),
+            parser_name=parser_name, parser_version=parser_version,
+        )
+
+    def succeed(self, *, completed_at: datetime | None = None, duration_ms: int | None = None) -> ProcessingRun:
+        return self._finish(ProcessingStatus.SUCCEEDED, completed_at=completed_at, duration_ms=duration_ms)
+
+    def complete_partially(self, *, completed_at: datetime | None = None, duration_ms: int | None = None) -> ProcessingRun:
+        return self._finish(ProcessingStatus.PARTIAL, completed_at=completed_at, duration_ms=duration_ms)
+
+    def fail(self, error_summary: str, *, completed_at: datetime | None = None, duration_ms: int | None = None) -> ProcessingRun:
+        return self._finish(
+            ProcessingStatus.FAILED, completed_at=completed_at, error_summary=error_summary, duration_ms=duration_ms,
+        )
+
+    def _finish(
+        self, status: ProcessingStatus, *, completed_at: datetime | None, duration_ms: int | None,
+        error_summary: str | None = None,
+    ) -> ProcessingRun:
+        if self.status is not ProcessingStatus.RUNNING:
+            raise ProcessingRunTransitionError("Only a running processing run can be completed")
+        return replace(
+            self, status=status, completed_at=completed_at or utcnow(), error_summary=error_summary,
+            duration_ms=duration_ms,
+        )
 
 
 @dataclass(frozen=True, slots=True)

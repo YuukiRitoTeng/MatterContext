@@ -16,6 +16,10 @@ The one-process default is an implementation choice, not a permanent constraint.
 
 Document imports cross `DocumentIngestionTask` before parser work, so Qt remains responsive. The application service validates a path, streams the original to the managed attachment root, registers a `SourceRecord` and running `ProcessingRun`, then atomically replaces extracted `ContentBlock` rows and persists terminal status. Same-matter SHA-256 matches retain a new attempted source and link it to the earliest existing source.
 
+Every durable long-running operation follows the same narrow processing-run lifecycle: a committed `running` run has no completion time; `succeeded`, `partial`, and `failed` are terminal and have a completion time; and terminal transitions use a compare-and-set persistence update from `running`. A handled failure is recorded with a sanitized summary before its application exception is returned to the caller.
+
+Automatic startup recovery of `running` rows is deliberately deferred. The current application does not yet record an instance/session owner or enforce a single-instance policy, so marking all running work as interrupted could incorrectly fail another live instance's work. A future recovery feature must first add safe ownership or conservative stale-age evidence.
+
 ```text
 PySide6 / Qt Widgets desktop window
     |
