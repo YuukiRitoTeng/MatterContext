@@ -8,7 +8,7 @@ import pytest
 
 from matter_context.ingestion.parsers import ExtractionCompleteness, extract_document
 from matter_context.ingestion.validation import DocumentValidationError, MAX_UPLOAD_BYTES, validate_document, validate_filename, validate_storable_path
-from matter_context.application.ingestion import DocumentIngestionService
+from matter_context.application.ingestion import DocumentIngestionService, _safe_error
 from matter_context.application.cases import PersistedMatterWorkspaceService
 from matter_context.application.matters import MatterService
 from matter_context.storage.attachments import AttachmentStore
@@ -409,7 +409,50 @@ def test_registration_callback_failure_closes_the_durable_run(tmp_path: Path) ->
 
     assert str(source.ingestion_status) == "failed" and str(source.extraction_status) == "failed"
     assert run and run.status.value == "failed" and run.completed_at is not None
-    assert run.error_summary == "progress callback failed"
+    assert run.error_summary == "Document processing failed."
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (DocumentValidationError(r"Rejected C:\Users\alice\case-files\evidence.txt"), "Document validation failed."),
+        (FileNotFoundError(r"C:\Users\alice\case-files\evidence.txt"), "Stored document is unavailable."),
+        (RuntimeError("client=alice-123; document contents: confidential settlement terms"), "Document processing failed."),
+    ],
+)
+def test_safe_error_uses_fixed_messages(error: Exception, expected: str) -> None:
+    assert _safe_error(error) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        r"Unable to read C:\Users\alice\case-files\evidence.txt",
+        "client=alice-123; document contents: confidential settlement terms",
+    ],
+)
+def test_parser_failure_does_not_persist_exception_text(tmp_path: Path, monkeypatch, message: str) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'sensitive-error.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Sensitive parser failure")
+    document = tmp_path / "evidence.txt"
+    document.write_text("evidence", encoding="utf-8")
+    monkeypatch.setattr(
+        "matter_context.application.ingestion.extract_document",
+        lambda *_: (_ for _ in ()).throw(RuntimeError(message)),
+    )
+
+    result = DocumentIngestionService(factory, AttachmentStore(tmp_path / "attachments")).ingest(matter.identifier, document)
+    with factory() as uow:
+        run = uow.processing_runs.get(result.run_id)
+
+    assert result.status.value == "failed"
+    assert run and run.status.value == "failed" and run.completed_at is not None
+    assert run.error_summary == "Document processing failed."
+    assert message not in run.error_summary
+    assert "alice" not in run.error_summary
+    assert "confidential" not in run.error_summary
 
 
 def test_parser_failure_closes_the_durable_run(tmp_path: Path, monkeypatch) -> None:

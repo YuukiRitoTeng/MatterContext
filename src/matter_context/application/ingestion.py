@@ -6,10 +6,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
+from zipfile import BadZipFile
 
-from matter_context.domain import ContentBlock, ExtractionStatus, IngestionStatus, ProcessingRun, Provenance, SourceKind, SourceRecord
+from pypdf.errors import PdfReadError
+
+from matter_context.domain import ContentBlock, ExtractionStatus, IngestionStatus, ProcessingRun, ProcessingRunTransitionError, Provenance, SourceKind, SourceRecord
 from matter_context.ingestion.parsers import ExtractionCompleteness, extract_document, parser_metadata
-from matter_context.ingestion.validation import ValidatedDocument, media_type_for_filename, validate_document, validate_storable_path
+from matter_context.ingestion.validation import DocumentValidationError, ValidatedDocument, media_type_for_filename, validate_document, validate_storable_path
 from .matters import new_identifier
 from .persistence import AttachmentStorePort, UnitOfWorkFactory
 
@@ -91,8 +94,26 @@ class DocumentIngestionService:
 
 
 def _safe_error(error: Exception) -> str:
-    message = " ".join(str(error).split()) or "Document extraction failed"
-    return message.replace("/", "").replace("\\", "")[:500]
+    """Classify failures without persisting exception-controlled text in matter data."""
+    if isinstance(error, DocumentValidationError):
+        return "Document validation failed."
+    if isinstance(error, FileNotFoundError):
+        return "Stored document is unavailable."
+    if isinstance(error, PermissionError):
+        return "Document file access was denied."
+    if isinstance(error, OSError):
+        return "Document file access failed."
+    if isinstance(error, UnicodeError):
+        return "Document text encoding could not be read."
+    if isinstance(error, BadZipFile):
+        return "DOCX content could not be read."
+    if isinstance(error, PdfReadError):
+        return "PDF content could not be read."
+    if isinstance(error, ProcessingRunTransitionError):
+        return "Document processing state could not be finalized."
+    if isinstance(error, ValueError):
+        return "Document content could not be processed."
+    return "Document processing failed."
 
 
 def _ingestion_completion(
