@@ -42,3 +42,12 @@ def test_main_window_starts_with_cases_destination(qtbot, monkeypatch, tmp_path)
 def test_smoke_test_exits_zero(qtbot, monkeypatch, tmp_path) -> None:
     _set_runtime_paths(monkeypatch, tmp_path)
     assert main(["--smoke-test"]) == 0
+
+
+def test_model_connection_check_uses_offline_configuration(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("MATTER_CONTEXT_MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("MATTER_CONTEXT_MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("MATTER_CONTEXT_MODEL_NAME", raising=False)
+
+    assert main(["--check-model-connection"]) == 0
+    assert capsys.readouterr().out == "Model connection check succeeded.\n"

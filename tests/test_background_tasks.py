@@ -8,7 +8,10 @@ from matter_context.execution.tasks import (
     FakeTaskMode,
     TaskCancelled,
     TaskFailure,
+    StructuredGenerationTask,
 )
+from matter_context.ai import FakeStructuredGenerationProvider
+from matter_context.application.generation import StructuredGenerationService
 from matter_context.application.ingestion import IngestionResult
 from matter_context.application.cases import PersistedMatterWorkspaceService
 from matter_context.application.matters import MatterService
@@ -135,3 +138,21 @@ def test_real_background_ingestion_persists_running_to_terminal_transition(qtbot
         run = uow.processing_runs.get(completed.args[0].run_id)
     assert source and str(source.ingestion_status) == "ready" and str(source.extraction_status) == "extracted"
     assert run and run.status.value == "succeeded" and run.completed_at is not None
+
+
+def test_generation_task_runs_through_responsive_qt_executor(qtbot, tmp_path: Path) -> None:
+    database = Database.from_url(f"sqlite:///{tmp_path / 'generation.sqlite3'}")
+    upgrade_database(str(database.engine.url))
+    factory = lambda: SqlAlchemyUnitOfWork(database.session_factory)
+    matter = MatterService(factory).create_matter("Background generation")
+    source = MatterService(factory).append_narrative(matter.identifier, "Selected source")
+    executor = QtBackgroundExecutor()
+    handle = executor.submit(StructuredGenerationTask(StructuredGenerationService(factory, FakeStructuredGenerationProvider()), matter.identifier, source.identifier))
+    ticks = []
+    timer = QTimer()
+    timer.timeout.connect(lambda: ticks.append(True))
+    timer.start(1)
+    with qtbot.waitSignal(handle.signals.completed, timeout=1500) as completed:
+        pass
+    timer.stop()
+    assert ticks and completed.args[0].summary == "Selected source"

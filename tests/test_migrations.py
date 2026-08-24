@@ -14,6 +14,7 @@ def test_migration_scripts_resolve_from_the_storage_package() -> None:
         assert (location / "versions" / "0001_initial_domain.py").is_file()
         assert (location / "versions" / "0002_narrative_update_type.py").is_file()
         assert (location / "versions" / "0003_document_ingestion.py").is_file()
+        assert (location / "versions" / "0004_structured_generation.py").is_file()
 
 
 def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
@@ -26,7 +27,7 @@ def test_alembic_creates_complete_initial_schema(tmp_path) -> None:
     run_columns = {column["name"] for column in inspect(database.engine).get_columns("processing_runs")}
     assert {"update_type", "duplicate_of_id"} <= source_columns
     assert {"page", "paragraph", "character_start", "character_end"} <= block_columns
-    assert {"parser_name", "parser_version", "duration_ms"} <= run_columns
+    assert {"parser_name", "parser_version", "duration_ms", "usage_input_tokens", "usage_output_tokens", "usage_total_tokens"} <= run_columns
 
 
 def test_upgrade_from_0001_preserves_populated_chinese_sources_and_nullable_update_type(tmp_path) -> None:
@@ -91,3 +92,26 @@ def test_alembic_honors_database_url_environment_override(monkeypatch, tmp_path)
     command.upgrade(config, "head")
 
     assert "matters" in inspect(Database.from_url(f"sqlite:///{target}").engine).get_table_names()
+
+
+def test_0004_usage_columns_round_trip_preserves_existing_processing_run(tmp_path) -> None:
+    url = f"sqlite:///{tmp_path / 'processing-run.sqlite3'}"
+    with migration_script_location() as location:
+        config = Config()
+        config.set_main_option("sqlalchemy.url", url)
+        config.set_main_option("script_location", str(location))
+        command.upgrade(config, "0003_document_ingestion")
+        database = Database.from_url(url)
+        with database.engine.begin() as connection:
+            connection.execute(text("INSERT INTO matters (identifier, title, status, created_at, updated_at) VALUES ('matter', 'Matter', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+            connection.execute(text("INSERT INTO processing_runs (identifier, matter_id, operation, input_source_ids, status, started_at) VALUES ('run', 'matter', 'existing', '[]', 'succeeded', CURRENT_TIMESTAMP)"))
+        command.upgrade(config, "0004_structured_generation")
+        columns = {column["name"] for column in inspect(database.engine).get_columns("processing_runs")}
+        assert {"usage_input_tokens", "usage_output_tokens", "usage_total_tokens"} <= columns
+        with database.engine.connect() as connection:
+            assert connection.execute(text("SELECT identifier, operation, usage_total_tokens FROM processing_runs")).one() == ("run", "existing", None)
+        command.downgrade(config, "0003_document_ingestion")
+        columns = {column["name"] for column in inspect(database.engine).get_columns("processing_runs")}
+        assert not {"usage_input_tokens", "usage_output_tokens", "usage_total_tokens"} & columns
+        with database.engine.connect() as connection:
+            assert connection.execute(text("SELECT identifier, operation FROM processing_runs")).one() == ("run", "existing")

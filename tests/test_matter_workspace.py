@@ -157,6 +157,19 @@ def test_add_case_update_is_directly_reachable_and_plain_text(qtbot, tmp_path) -
     assert window._workspace.findChild(QPushButton, "addFilesButton").isEnabled()
 
 
+def test_selected_source_generation_is_an_explicit_lawyer_action(qtbot) -> None:
+    widget = MatterWorkspaceWidget(_DocumentWorkspaceService([_document_source()]), "matter", on_cases=lambda: None)
+    qtbot.addWidget(widget)
+    widget.show()
+
+    action = widget.findChild(QPushButton, "organizeSelectedSourceButton")
+    assert action is not None and not action.isEnabled()
+    widget.source_list.setCurrentRow(0)
+    assert action.isEnabled()
+    visible_text = "\n".join(child.text().casefold() for child in widget.findChildren(QPushButton))
+    assert all(term not in visible_text for term in ("provider", "model", "token", "prompt", "routing", "mcp", "agent"))
+
+
 def test_editor_submission_uses_application_update_type_values(qtbot, tmp_path) -> None:
     _, workspace, _ = _services(tmp_path)
     matter = workspace.create_matter("Saved through editor")

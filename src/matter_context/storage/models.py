@@ -108,6 +108,9 @@ class ProcessingRunRow(Base):
     parser_name: Mapped[str | None] = mapped_column(String(128))
     parser_version: Mapped[str | None] = mapped_column(String(128))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
+    usage_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    usage_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    usage_total_tokens: Mapped[int | None] = mapped_column(Integer)
 
 
 class CaseBriefVersionRow(Base):

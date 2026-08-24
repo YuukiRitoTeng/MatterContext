@@ -29,6 +29,13 @@ class DocumentIngestionTaskResult(TaskResult):
     error_summary: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class StructuredGenerationTaskResult(TaskResult):
+    source_id: str = ""
+    run_id: str = ""
+    summary: str = ""
+
+
 class TaskFailure(Exception):
     """Sanitized failure returned through the execution boundary."""
 
@@ -104,3 +111,26 @@ class DocumentIngestionTask:
         cancellation.raise_if_cancelled()
         report_progress(TaskProgress(2, 2, "Extraction complete"))
         return DocumentIngestionTaskResult("Document ingestion complete", result.source_id, result.run_id, result.status.value, result.duplicate_of_id, result.error_summary)
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredGenerationTask:
+    """Run selected-source remote generation outside the Qt event thread."""
+
+    service: object
+    matter_id: str
+    source_id: str
+
+    def run(self, cancellation: CancellationToken, report_progress: ProgressReporter) -> StructuredGenerationTaskResult:
+        cancellation.raise_if_cancelled()
+        report_progress(TaskProgress(1, 2, "Organizing selected source…"))
+        try:
+            result = self.service.organize_selected_source(self.matter_id, self.source_id)
+        except Exception as error:
+            from matter_context.ai import ProviderError
+            if isinstance(error, ProviderError):
+                raise TaskFailure(str(error)) from error
+            raise TaskFailure("The selected source could not be organized.") from error
+        cancellation.raise_if_cancelled()
+        report_progress(TaskProgress(2, 2, "Organized update ready"))
+        return StructuredGenerationTaskResult("Selected source organized", self.source_id, result.run.identifier, result.update.summary)

@@ -113,3 +113,7 @@ Qt workers, `QThreadPool`, asynchronous background tasks, and internally managed
 ## Accessibility and desktop behavior
 
 The primary path must support keyboard focus, readable Chinese text, standard Windows scaling, clear disabled and progress states, and confirmation before destructive actions. The application must remain usable at common laptop resolutions without requiring a maximized window.
+
+# Structured generation interaction
+
+Sources provides an explicit **Organize selected source** action. It has no provider, model, token, prompt, routing, MCP, or agent controls. Work runs through the existing background executor and displays only sanitized progress, result, or failure text.

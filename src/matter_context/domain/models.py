@@ -196,6 +196,20 @@ class ProcessingRun:
     parser_name: str | None = None
     parser_version: str | None = None
     duration_ms: int | None = None
+    usage_input_tokens: int | None = None
+    usage_output_tokens: int | None = None
+    usage_total_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        usage = (
+            self.usage_input_tokens,
+            self.usage_output_tokens,
+            self.usage_total_tokens,
+        )
+        if any(value is not None and value < 0 for value in usage):
+            raise DomainInvariantError("Processing usage values cannot be negative")
+        if all(value is not None for value in usage) and self.usage_total_tokens != self.usage_input_tokens + self.usage_output_tokens:
+            raise DomainInvariantError("Processing total usage must equal input plus output usage")
 
 
 @dataclass(frozen=True, slots=True)
