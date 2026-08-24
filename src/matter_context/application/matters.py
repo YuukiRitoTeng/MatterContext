@@ -120,8 +120,11 @@ class MatterService:
                 matter_id, stored.relative_path, stored.sha256,
                 original_filename=original_filename, media_type=media_type,
             )
-        except Exception:
-            attachment_store.delete(stored.relative_path)
+        except Exception as registration_error:
+            try:
+                attachment_store.delete(stored.relative_path)
+            except Exception:
+                registration_error.add_note("Managed attachment cleanup also failed.")
             raise
 
     def replace_source_payload(self, source_id: str, _: str) -> None:

@@ -242,16 +242,58 @@ def test_processing_run_repository_rejects_missing_and_non_running_transition_ta
     assert persisted == succeeded
 
 
-def test_legacy_document_file_registration_removes_attachment_when_registration_fails(service, tmp_path) -> None:
+def test_legacy_document_file_registration_preserves_failure_after_successful_cleanup(service, tmp_path, monkeypatch) -> None:
     app, _ = service
     original = tmp_path / "evidence.txt"
     original.write_text("evidence", encoding="utf-8")
     attachments = AttachmentStore(tmp_path / "attachments")
+    cleanup_attempts: list[str] = []
+    original_delete = attachments.delete
 
-    with pytest.raises(Exception):
+    def fail_registration(*_args, **_kwargs):
+        raise RuntimeError("registration failed")
+
+    def record_successful_cleanup(relative_path: str) -> None:
+        cleanup_attempts.append(relative_path)
+        original_delete(relative_path)
+
+    monkeypatch.setattr(app, "register_document", fail_registration)
+    monkeypatch.setattr(attachments, "delete", record_successful_cleanup)
+
+    with pytest.raises(RuntimeError, match="registration failed") as error:
         app.register_document_file(
             "missing-matter", str(original), attachments,
             original_filename="evidence.txt", media_type="text/plain",
         )
 
+    assert cleanup_attempts
+    assert getattr(error.value, "__notes__", None) is None
     assert not list(attachments.root.rglob("*"))
+
+
+def test_legacy_document_file_registration_preserves_failure_after_failed_cleanup(service, tmp_path, monkeypatch) -> None:
+    app, _ = service
+    original = tmp_path / "evidence.txt"
+    original.write_text("evidence", encoding="utf-8")
+    attachments = AttachmentStore(tmp_path / "attachments")
+    cleanup_attempts: list[str] = []
+
+    def fail_registration(*_args, **_kwargs):
+        raise RuntimeError("registration failed")
+
+    def fail_cleanup(relative_path: str) -> None:
+        cleanup_attempts.append(relative_path)
+        raise RuntimeError("cleanup failed")
+
+    monkeypatch.setattr(app, "register_document", fail_registration)
+    monkeypatch.setattr(attachments, "delete", fail_cleanup)
+
+    with pytest.raises(RuntimeError, match="registration failed") as error:
+        app.register_document_file(
+            "missing-matter", str(original), attachments,
+            original_filename="evidence.txt", media_type="text/plain",
+        )
+
+    assert cleanup_attempts
+    assert error.value.__notes__ == ["Managed attachment cleanup also failed."]
+    assert list(attachments.root.rglob("*"))
