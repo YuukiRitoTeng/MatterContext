@@ -63,6 +63,7 @@ class ProcessingStatus(StrEnum):
 class IngestionStatus(StrEnum):
     PROCESSING = "processing"
     READY = "ready"
+    NEEDS_REVIEW = "needs_review"
     NEEDS_OCR = "needs_ocr"
     FAILED = "failed"
 
@@ -71,6 +72,8 @@ class ExtractionStatus(StrEnum):
     NOT_STARTED = "not_started"
     RUNNING = "running"
     EXTRACTED = "extracted"
+    PARTIAL = "partial"
+    NO_TEXT = "no_text"
     NEEDS_OCR = "needs_ocr"
     FAILED = "failed"
 
@@ -111,6 +114,13 @@ class SourceRecord:
             raise DomainInvariantError("A source requires text or an attachment path")
         if self.text is not None and self.attachment_path is not None:
             raise DomainInvariantError("A source cannot store text and an attachment path together")
+
+    @property
+    def is_ready_for_downstream(self) -> bool:
+        """Whether this source may be treated as complete input by a later workflow."""
+        if str(self.ingestion_status) != IngestionStatus.READY:
+            return False
+        return self.kind is SourceKind.NARRATIVE_UPDATE or str(self.extraction_status) == ExtractionStatus.EXTRACTED
 
 
 @dataclass(frozen=True, slots=True)

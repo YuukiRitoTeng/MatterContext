@@ -35,10 +35,10 @@ class _DocumentWorkspaceService:
         raise AssertionError("UI submission test replaces _submit_file")
 
 
-def _document_source(*, media_type: str = "text/plain", text: str = "Extracted 中文 text", duplicate: bool = False, original_path: str | None = None, status: str = "ready", error_summary: str | None = None) -> WorkspaceSource:
+def _document_source(*, media_type: str = "text/plain", text: str = "Extracted 中文 text", source_text: str | None = None, duplicate: bool = False, original_path: str | None = None, status: str = "ready", extraction_status: str | None = None, error_summary: str | None = None) -> WorkspaceSource:
     return WorkspaceSource(
-        "document", None, None, datetime.now(timezone.utc), None, "File", text[:20],
-        "证据.pdf" if media_type == "application/pdf" else "证据.txt", media_type, status, "failed" if status == "failed" else "extracted",
+        "document", source_text, None, datetime.now(timezone.utc), None, "File", text[:20],
+        "证据.pdf" if media_type == "application/pdf" else "证据.txt", media_type, status, extraction_status or ("failed" if status == "failed" else "extracted"),
         "existing-document" if duplicate else None,
         (ContentBlock("block", "document", 0, text, "page:1" if media_type == "application/pdf" else "characters:0-1", page=1 if media_type == "application/pdf" else None),),
         original_path, error_summary,
@@ -310,6 +310,74 @@ def test_failed_document_status_and_sanitized_error_are_visible(qtbot, tmp_path)
     assert "[failed]" in label
     assert "malformed" in label.lower() or "pdf" in label.lower()
     assert str(tmp_path) not in label
+
+
+def test_incomplete_document_status_and_preserved_text_are_visible(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([_document_source(media_type="application/pdf", status="needs_review")]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    assert "[needs_review]" in widget.source_list.item(0).text()
+    assert "incomplete" in widget.source_list.item(0).text()
+    assert "Extracted text is incomplete" in widget.preview.toPlainText()
+    assert "Extracted 中文 text" in widget.preview.toPlainText()
+
+
+def test_no_text_status_takes_priority_over_needs_review(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([
+            _document_source(media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", text="", source_text="", status="needs_review", extraction_status="no_text"),
+        ]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    label = widget.source_list.item(0).text()
+    assert "no extractable text" in label
+    assert "incomplete" not in label
+    assert "No extractable text was found" in widget.preview.toPlainText()
+    assert "Extracted text is incomplete" not in widget.preview.toPlainText()
+
+
+def test_partial_text_keeps_content_and_incomplete_warning(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([
+            _document_source(source_text="Recovered partial text", status="needs_review", extraction_status="partial"),
+        ]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    assert "Recovered partial text" in widget.source_list.item(0).text()
+    assert "incomplete" in widget.source_list.item(0).text()
+    assert "Extracted text is incomplete" in widget.preview.toPlainText()
+    assert "Recovered partial text" in widget.preview.toPlainText()
+
+
+def test_ready_text_has_no_extraction_warning(qtbot) -> None:
+    widget = MatterWorkspaceWidget(
+        _DocumentWorkspaceService([_document_source(source_text="Complete source text")]),
+        "matter", on_cases=lambda: None,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.sections.setCurrentWidget(widget.sources_page)
+    widget.source_list.setCurrentRow(0)
+
+    assert "Complete source text" in widget.source_list.item(0).text()
+    assert "incomplete" not in widget.source_list.item(0).text()
+    assert widget.preview.toPlainText() == "Complete source text"
 
 
 def test_pdf_preview_opens_referenced_one_based_page_in_real_native_pdf(qtbot, tmp_path) -> None:

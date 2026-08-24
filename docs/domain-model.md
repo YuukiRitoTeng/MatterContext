@@ -41,6 +41,8 @@ Minimum attributes:
 
 Editing an earlier narrative does not mutate the source. A correction is a new source record that references the earlier source. Source provenance is explicit: `original_source`, `attorney_provided`, `ai_organized`, or `ai_inferred`.
 
+For imported documents, `ready` is a completeness claim: the active adapter considers the content it supports fully extracted for the current phase. `needs_review`, `needs_ocr`, and `failed` are not eligible as complete downstream input. Partial blocks and the preserved original remain available for inspection and later reprocessing.
+
 ## Content block
 
 A normalized, addressable piece of extracted source content.

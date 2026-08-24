@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic
 
 from matter_context.domain import ContentBlock, ExtractionStatus, IngestionStatus, ProcessingRun, ProcessingStatus, Provenance, SourceKind, SourceRecord, utcnow
-from matter_context.ingestion.parsers import extract_document, parser_metadata
+from matter_context.ingestion.parsers import ExtractionCompleteness, extract_document, parser_metadata
 from matter_context.ingestion.validation import ValidatedDocument, media_type_for_filename, validate_document, validate_storable_path
 from .matters import new_identifier
 from .persistence import AttachmentStorePort, UnitOfWorkFactory
@@ -46,9 +46,8 @@ class DocumentIngestionService:
             parser_name, parser_version = parser_metadata(validated.media_type)
             extracted = extract_document(validated.path, validated.media_type)
             blocks = [ContentBlock(identifier=new_identifier(), source_id=source.identifier, ordinal=item.ordinal, text=item.text, locator=item.locator, page=item.page, paragraph=item.paragraph, character_start=item.character_start, character_end=item.character_end) for item in extracted.blocks]
-            status = IngestionStatus.NEEDS_OCR if extracted.needs_ocr else IngestionStatus.READY
-            extraction = ExtractionStatus.NEEDS_OCR if extracted.needs_ocr else ExtractionStatus.EXTRACTED
-            completed = replace(run, status=ProcessingStatus.PARTIAL if extracted.needs_ocr else ProcessingStatus.SUCCEEDED, completed_at=utcnow(), parser_name=extracted.parser_name, parser_version=extracted.parser_version, duration_ms=round((monotonic() - started) * 1000))
+            status, extraction, run_status = _ingestion_outcome(extracted.completeness, validated.media_type)
+            completed = replace(run, status=run_status, completed_at=utcnow(), parser_name=extracted.parser_name, parser_version=extracted.parser_version, duration_ms=round((monotonic() - started) * 1000))
             with self._uow_factory() as uow:
                 uow.content_blocks.replace_for_source(source.identifier, blocks)
                 uow.sources.update_status(source.identifier, ingestion_status=status.value, extraction_status=extraction.value)
@@ -79,3 +78,16 @@ class DocumentIngestionService:
 def _safe_error(error: Exception) -> str:
     message = " ".join(str(error).split()) or "Document extraction failed"
     return message.replace("/", "").replace("\\", "")[:500]
+
+
+def _ingestion_outcome(
+    completeness: ExtractionCompleteness, media_type: str,
+) -> tuple[IngestionStatus, ExtractionStatus, ProcessingStatus]:
+    """Map parser truthfulness to durable states without treating partial text as ready."""
+    if completeness is ExtractionCompleteness.COMPLETE:
+        return IngestionStatus.READY, ExtractionStatus.EXTRACTED, ProcessingStatus.SUCCEEDED
+    if completeness is ExtractionCompleteness.PARTIAL:
+        return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.PARTIAL, ProcessingStatus.PARTIAL
+    if media_type == "application/pdf":
+        return IngestionStatus.NEEDS_OCR, ExtractionStatus.NO_TEXT, ProcessingStatus.PARTIAL
+    return IngestionStatus.NEEDS_REVIEW, ExtractionStatus.NO_TEXT, ProcessingStatus.PARTIAL
